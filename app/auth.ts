@@ -1,8 +1,8 @@
 import { cookies } from "next/headers";
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 
-// Single-owner password gate. Everything is stored under OWNER_ID.
-export type AppUser = { userId: string };
+// Shared password gate. Data is partitioned by profile (BGG username), not by who signed in.
+export type AppUser = { signedIn: true };
 
 export const SESSION_COOKIE = "cc_session";
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
@@ -33,5 +33,12 @@ export async function getUser(): Promise<AppUser | null> {
   const expected = sessionToken();
   const cookie = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!expected || !cookie || !safeEqual(cookie, expected)) return null;
-  return { userId: process.env.OWNER_ID || "owner" };
+  return { signedIn: true };
+}
+
+// Compare hosts only: behind Railway's proxy request.url can report http while the browser origin is https.
+export function sameOrigin(request: Request): boolean {
+  const origin = request.headers.get("origin");
+  const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
+  return !origin || new URL(origin).host === host;
 }

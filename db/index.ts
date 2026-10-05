@@ -1,7 +1,7 @@
 import { Pool } from "pg";
 
 // Tables are created on first use so a fresh Railway Postgres needs no manual migration step.
-const SCHEMA = `
+export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS collection_state (
   owner text PRIMARY KEY,
   settings jsonb NOT NULL DEFAULT '{}',

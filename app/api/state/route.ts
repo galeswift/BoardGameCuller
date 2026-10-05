@@ -1,25 +1,26 @@
-import {getUser} from '../../auth';
+import {getUser,sameOrigin} from '../../auth';
 import {getDb} from '@/db';
 import seed from '@/lib/collection.json';
 import {defaults,type Game,type Preference,type Settings} from '@/lib/model';
 import {preferencePatch,settingsPatch,validateGames} from '@/lib/validation';
 import {preferenceWrite} from '@/lib/preference-sql';
+import {defaultProfile,resolveProfile} from '@/lib/profile';
 export const dynamic='force-dynamic';
 const json=(v:unknown,status=200)=>Response.json(v,{status,headers:{'Cache-Control':'no-store'}});
-export async function GET(){
+export async function GET(request:Request){
  const user=await getUser();if(!user)return json({error:'Sign in to load your saved collection.'},401);
- try{const db=await getDb();const [state,prefs]=await Promise.all([db.query<{settings:Partial<Settings>;games:Game[]|null;updated:string}>('SELECT settings,games,updated FROM collection_state WHERE owner=$1',[user.userId]),db.query<{game_id:string;data:Preference;updated:string}>('SELECT game_id,data,updated FROM preferences WHERE owner=$1',[user.userId])]);
-  const s=state.rows[0];const timestamps=[s?.updated,...prefs.rows.map(p=>p.updated)].filter(Boolean).sort();return json({games:s?.games??seed,settings:{...defaults,...s?.settings},preferences:Object.fromEntries(prefs.rows.map(p=>[p.game_id,p.data])),savedAt:timestamps.at(-1)||null});
+ let profile;try{profile=resolveProfile(new URL(request.url).searchParams.get('profile'));}catch(e){return json({error:(e as Error).message},400);}
+ try{const db=await getDb();const [state,prefs,owners]=await Promise.all([db.query<{settings:Partial<Settings>;games:Game[]|null;updated:string}>('SELECT settings,games,updated FROM collection_state WHERE owner=$1',[profile]),db.query<{game_id:string;data:Preference;updated:string}>('SELECT game_id,data,updated FROM preferences WHERE owner=$1',[profile]),db.query<{owner:string}>('SELECT owner FROM collection_state ORDER BY owner')]);
+  const s=state.rows[0];const timestamps=[s?.updated,...prefs.rows.map(p=>p.updated)].filter(Boolean).sort();return json({profile,profiles:owners.rows.map(o=>o.owner),games:s?.games??(profile===defaultProfile()?seed:[]),settings:{...defaults,...s?.settings},preferences:Object.fromEntries(prefs.rows.map(p=>[p.game_id,p.data])),savedAt:timestamps.at(-1)||null});
  }catch(e){console.error('Collection load failed',e);return json({error:'Your saved collection is temporarily unavailable. Please retry.'},503);}
 }
 export async function POST(request:Request){
  const user=await getUser();if(!user)return json({error:'Sign in before saving preferences.'},401);
- // Compare hosts only: behind Railway's proxy request.url can report http while the browser origin is https.
- const origin=request.headers.get('origin'),host=request.headers.get('x-forwarded-host')||request.headers.get('host');if(origin&&new URL(origin).host!==host)return json({error:'Request origin does not match.'},403);
+ if(!sameOrigin(request))return json({error:'Request origin does not match.'},403);
  if(Number(request.headers.get('content-length')||0)>1500000)return json({error:'Import is too large.'},413);
  let payload;try{const text=await request.text();if(text.length>1500000)return json({error:'Import is too large.'},413);payload=JSON.parse(text);}catch{return json({error:'Invalid request.'},400);}
  try{
-  const db=await getDb(),now=new Date().toISOString(),owner=user.userId;
+  const db=await getDb(),now=new Date().toISOString(),owner=resolveProfile(payload.profile);
   const preferenceStatement=(id:string,p:unknown)=>{if(typeof id!=='string'||!/^\d{1,10}$/.test(id))throw new Error('Invalid BGG ID.');const patch=preferencePatch(p);if(!Object.keys(patch).length)throw new Error('Invalid empty preference.');return preferenceWrite(owner,id,patch as Record<string,unknown>,now);};
   if(payload.action==='preference'){const s=preferenceStatement(payload.id,payload.patch);await db.query(s.sql,s.values);}
   else if(payload.action==='settings'){const patch=settingsPatch(payload.patch);await db.query('INSERT INTO collection_state(owner,settings,updated) VALUES($1,$2::jsonb,$3) ON CONFLICT(owner) DO UPDATE SET settings=collection_state.settings||excluded.settings,updated=excluded.updated',[owner,JSON.stringify(patch),now]);}
