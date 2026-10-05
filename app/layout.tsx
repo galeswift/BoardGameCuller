@@ -1,5 +1,9 @@
 import type { Metadata } from "next";
+import { Figtree, Fraunces } from "next/font/google";
 import "./globals.css";
+
+const sans = Figtree({ subsets: ["latin"], variable: "--font-figtree" });
+const display = Fraunces({ subsets: ["latin"], variable: "--font-fraunces" });
 
 export const metadata: Metadata = {
   title: "Collection Cull",
@@ -19,7 +23,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" className={`${sans.variable} ${display.variable}`}>
       <body className="antialiased">{children}</body>
     </html>
   );
