@@ -25,7 +25,7 @@ const THINGS = items(`
   <link type="boardgamecategory" id="1" value="Fantasy"/><link type="boardgamemechanic" id="2" value="Cooperative Game"/>
   <statistics><ratings><averageweight value="3.2"/></ratings></statistics></item>
  <item type="boardgame" id="900002"><minplayers value="2"/><maxplayers value="4"/><playingtime value="30"/>
-  <link type="boardgamecategory" id="3" value="Abstract Strategy"/>
+  <link type="boardgamecategory" id="3" value="Abstract Strategy"/><link type="boardgamepublisher" id="9" value="Tile Co."/>
   <statistics><ratings><averageweight value="1.8"/></ratings></statistics></item>
  <item type="boardgameexpansion" id="900003"><minplayers value="1"/><maxplayers value="4"/><playingtime value="90"/>
   <link type="boardgameexpansion" id="900001" value="Fixture Quest" inbound="true"/>

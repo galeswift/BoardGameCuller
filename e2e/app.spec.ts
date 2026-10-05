@@ -114,3 +114,32 @@ test("cull reasons show as icons with details on hover", async ({ page }) => {
   await row.getByRole("button", { name: /^Below your rating threshold/ }).hover();
   await expect(page.getByRole("tooltip")).toContainText("6.4/10 is 0.6 below your 7.0 threshold.");
 });
+
+test("the cull list exports to Noble Knight's trade-in template", async ({ page }) => {
+  const friend = uniqueProfile("trade");
+  await signIn(page);
+  await page.goto(`/?profile=${friend}`);
+  await page.getByRole("button", { name: "Import from BoardGameGeek" }).click();
+  await expect(page.getByText("Imported 3 entries")).toBeVisible({ timeout: 30_000 });
+  await page.locator("#target").fill("1");
+  await page.getByRole("tab", { name: /Cull list/ }).click();
+
+  const condition = page.getByRole("combobox", { name: "Trade-in condition for Test Tiles" });
+  await expect(condition).toHaveText("Used");
+  await condition.click();
+  await page.getByRole("option", { name: "Unpunched" }).click();
+  await expect(page.getByRole("status").filter({ hasText: "All changes saved" })).toBeVisible();
+
+  const [download] = await Promise.all([
+    page.waitForEvent("download"),
+    page.getByRole("button", { name: "Noble Knight trade-in" }).click(),
+  ]);
+  expect(download.suggestedFilename()).toBe(`noble-knight-trade-in-${friend}.xlsx`);
+  const { readFile } = await import("node:fs/promises");
+  const { strFromU8, unzipSync } = await import("fflate");
+  const sheet = strFromU8(unzipSync(new Uint8Array(await readFile(await download.path())))["xl/worksheets/sheet1.xml"]);
+  expect(sheet).toContain(">Tile Co.<");
+  expect(sheet).toContain(">Test Tiles<");
+  expect(sheet).toContain(">Unpunched<");
+  expect(sheet).not.toContain(">Fixture Quest<");
+});

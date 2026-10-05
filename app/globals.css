@@ -78,3 +78,6 @@
 .cull-list .thumbs{box-shadow:inset 0 0 0 1px #2f4566}
 }
 .title-line{display:flex;align-items:center;gap:4px;min-width:0}.title-line .game-title{min-width:0}.edit-details{flex:none;display:grid;place-items:center;width:28px;height:28px;border-radius:7px;color:var(--muted-foreground);opacity:.75;transition:background-color .12s ease,color .12s ease,opacity .12s ease}.edit-details:hover,.edit-details:focus-visible{opacity:1;color:var(--primary);background:var(--accent)}.edit-details:focus-visible{outline:2px solid var(--ring);outline-offset:1px}
+.trade-cell{display:flex;flex-direction:column;align-items:flex-start;gap:8px}.trade-cell .keep-check{min-height:28px}.condition-select{width:100%;max-width:150px}
+@media(max-width:1100px){.cull-list .trade-cell{grid-column:2/7;flex-direction:row;align-items:center;gap:16px}}
+@media(max-width:900px){.cull-list .trade-cell{grid-column:2/4;grid-row:5;flex-direction:column;align-items:flex-start;gap:8px}}

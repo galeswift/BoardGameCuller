@@ -1,5 +1,9 @@
-export type Game={id:string;name:string;type:'standalone'|'expansion';rating:number|null;personalRating:number|null;complexity:number|null;minutes:number|null;minPlayers:number|null;maxPlayers:number|null;bestPlayers?:string;mean:number|null;group:string;theme:string;mode:string;notes:string;parentId?:string;parentName?:string};
-export type Preference={thumb?:number;mustKeep?:boolean;reviewed?:boolean;box?:number|null;personalRating?:number|null;mean?:number|null;group?:string;theme?:string;mode?:string;minutes?:number|null;notes?:string};
+export type Game={id:string;name:string;type:'standalone'|'expansion';rating:number|null;personalRating:number|null;complexity:number|null;minutes:number|null;minPlayers:number|null;maxPlayers:number|null;bestPlayers?:string;mean:number|null;group:string;theme:string;mode:string;notes:string;parentId?:string;parentName?:string;publisher?:string};
+export type Preference={thumb?:number;mustKeep?:boolean;reviewed?:boolean;box?:number|null;personalRating?:number|null;mean?:number|null;group?:string;theme?:string;mode?:string;minutes?:number|null;notes?:string;condition?:Condition|null};
+// Noble Knight trade-in conditions, in the order their template lists them.
+export const CONDITIONS=['New','Unpunched','Used','Near Mint (Books Only)'] as const;
+export type Condition=typeof CONDITIONS[number];
+export const DEFAULT_CONDITION:Condition='Used';
 export type Settings={target:number;ratingWeight:number;lowThreshold:number;lowPenalty:number;overlapWeight:number;meanWeight:number;boxWeight:number;thumbWeight:number;preserve:boolean};
 export type State={games:Game[];preferences:Record<string,Preference>;settings:Settings;savedAt:string|null};
 export const defaults:Settings={target:192,ratingWeight:70,lowThreshold:7,lowPenalty:15,overlapWeight:20,meanWeight:10,boxWeight:3,thumbWeight:30,preserve:true};
@@ -112,6 +116,6 @@ export function parseCSV(text:string){
 export function collectionFromCSV(text:string,previous:Game[]){
  const rows=parseCSV(text);if(!rows.length||!('objectid' in rows[0])||!('objectname' in rows[0]))throw new Error('Upload a BGG collection CSV with objectid and objectname columns.');
  const old=new Map(previous.map(g=>[g.id,g]));const num=(v:string)=>Number(v)||null;
- const games:Game[]=rows.filter(r=>r.own==='1').map(r=>{const prior=old.get(r.objectid);return {id:r.objectid,name:r.objectname,type:r.itemtype==='expansion'?'expansion':'standalone',rating:num(r.average),personalRating:num(r.rating),complexity:num(r.avgweight),minutes:prior?.minutes??num(r.maxplaytime),minPlayers:num(r.minplayers),maxPlayers:num(r.maxplayers),bestPlayers:r.bggbestplayers,mean:prior?.mean??null,group:prior?.group||'',theme:prior?.theme||'',mode:prior?.mode||'',notes:prior?.notes||'',parentId:prior?.parentId||'',parentName:prior?.parentName||''};});
+ const games:Game[]=rows.filter(r=>r.own==='1').map(r=>{const prior=old.get(r.objectid);return {id:r.objectid,name:r.objectname,type:r.itemtype==='expansion'?'expansion':'standalone',rating:num(r.average),personalRating:num(r.rating),complexity:num(r.avgweight),minutes:prior?.minutes??num(r.maxplaytime),minPlayers:num(r.minplayers),maxPlayers:num(r.maxplayers),bestPlayers:r.bggbestplayers,mean:prior?.mean??null,group:prior?.group||'',theme:prior?.theme||'',mode:prior?.mode||'',notes:prior?.notes||'',parentId:prior?.parentId||'',parentName:prior?.parentName||'',publisher:prior?.publisher||''};});
  if(!games.length)throw new Error('No owned games found in this CSV.');if(new Set(games.map(g=>g.id)).size!==games.length)throw new Error('Duplicate BGG IDs found. Export one entry per game.');return games;
 }

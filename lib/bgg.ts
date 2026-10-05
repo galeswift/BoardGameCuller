@@ -61,6 +61,7 @@ function details(item:Node){
   bestPlayers:bestPlayers(item),
   mode:mechanics.includes('Cooperative Game')?'Cooperative':mechanics.includes('Team-Based Game')?'Teams':maxPlayers===1?'Solo':'Competitive',
   theme:values('boardgamecategory').find(c=>!NON_THEME.has(c))||'',
+  publisher:values('boardgamepublisher').find(p=>p!=='(Unknown)')||'',
   parents:links.filter(l=>l.type==='boardgameexpansion'&&l.inbound==='true').map(l=>({id:String(l.id),name:String(l.value)})),
  };
 }
@@ -93,6 +94,6 @@ export async function fetchBggCollection(username:string,previous:Game[]):Promis
    complexity:t?.complexity??null,minutes:prior?.minutes??t?.minutes??num(stats?.playingtime),
    minPlayers:t?.minPlayers??num(stats?.minplayers),maxPlayers:t?.maxPlayers??num(stats?.maxplayers),bestPlayers:t?.bestPlayers,
    mean:prior?.mean??null,group:prior?.group||'',theme:prior?.theme||t?.theme||'',mode:prior?.mode||t?.mode||'',notes:prior?.notes||'',
-   parentId:parent?.id||prior?.parentId||'',parentName:parent?.name||prior?.parentName||''};
+   parentId:parent?.id||prior?.parentId||'',parentName:parent?.name||prior?.parentName||'',publisher:t?.publisher||prior?.publisher||''};
  });
 }

@@ -20,6 +20,7 @@ const THINGS = `<?xml version="1.0" encoding="utf-8"?><items>
   <poll-summary name="suggested_numplayers"><result name="bestwith" value="Best with 2–3 players"/><result name="recommmendedwith" value="Recommended with 1–4 players"/></poll-summary>
   <link type="boardgamecategory" id="1" value="Card Game"/><link type="boardgamecategory" id="2" value="Fantasy"/>
   <link type="boardgamemechanic" id="3" value="Cooperative Game"/>
+  <link type="boardgamepublisher" id="4" value="(Unknown)"/><link type="boardgamepublisher" id="5" value="Greater Than Games"/>
   <statistics><ratings><averageweight value="4.06"/></ratings></statistics>
  </item>
  <item type="boardgame" id="200">
@@ -72,9 +73,9 @@ describe("fetchBggCollection", () => {
     const [spirit, hanabi, branch] = games;
     expect(spirit).toMatchObject({
       name: "Spirit Island", type: "standalone", rating: 8.3, personalRating: 9, complexity: 4.06,
-      minutes: 120, minPlayers: 1, maxPlayers: 4, bestPlayers: "2,3", mode: "Cooperative", theme: "Fantasy",
+      minutes: 120, minPlayers: 1, maxPlayers: 4, bestPlayers: "2,3", mode: "Cooperative", theme: "Fantasy", publisher: "Greater Than Games",
     });
-    expect(hanabi).toMatchObject({ personalRating: null, complexity: null, bestPlayers: "3,5", mode: "Competitive", theme: "" });
+    expect(hanabi).toMatchObject({ publisher: "", personalRating: null, complexity: null, bestPlayers: "3,5", mode: "Competitive", theme: "" });
     // Prefers the base game the user actually owns.
     expect(branch).toMatchObject({ type: "expansion", parentId: "100", parentName: "Spirit Island" });
   });

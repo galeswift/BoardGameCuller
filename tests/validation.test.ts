@@ -3,6 +3,11 @@ import { preferencePatch, settingsPatch, validateGames } from "@/lib/validation"
 import { game } from "./helpers";
 
 describe("preferencePatch", () => {
+  it("accepts trade-in conditions, or null for the default", () => {
+    expect(preferencePatch({ condition: "Unpunched" })).toEqual({ condition: "Unpunched" });
+    expect(preferencePatch({ condition: null })).toEqual({ condition: null });
+  });
+
   it("accepts known fields", () => {
     expect(preferencePatch({ thumb: -1, mustKeep: true, box: 2, personalRating: null, notes: "keep" })).toEqual({
       thumb: -1, mustKeep: true, box: 2, personalRating: null, notes: "keep",
@@ -17,6 +22,7 @@ describe("preferencePatch", () => {
     [{ group: "x".repeat(151) }, "Text is too long."],
     [{ hacked: true }, "Unknown preference field."],
     [[], "Invalid preference."],
+    [{ condition: "Mint" }, "Invalid condition."],
   ])("rejects %j", (patch, message) => {
     expect(() => preferencePatch(patch)).toThrow(message);
   });
