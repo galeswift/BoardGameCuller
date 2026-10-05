@@ -25,7 +25,7 @@ export function calculate(state:State){
   const mean=merged.mean==null?0:merged.mean/5*s.meanWeight;
   const box=p.box==null?0:p.box/3*s.boxWeight;
   const bias=(p.thumb||0)*s.thumbWeight;
-  return {...merged,p,rating,ratingPoints,low,meanPenalty:mean,boxPenalty:box,bias,priority:ratingPoints-low-mean-box+bias+(p.mustKeep?1000:0),overlap:0,similarity:0,alternative:''};
+  return {...merged,p,rating,ratingPoints,low,meanPenalty:mean,boxPenalty:box,bias,priority:ratingPoints-low-mean-box+bias+(p.mustKeep?1000:0),overlap:0,similarity:0,alternative:'',match:null as Match|null};
  });
  const groups=new Map<string,typeof list>();
  for(const g of list){if(!g.group)continue;const key=g.group+'|'+g.mode;const a=groups.get(key)||[];a.push(g);groups.set(key,a);}
@@ -45,7 +45,8 @@ export function calculate(state:State){
    const duration=g.minutes&&rep.minutes?Math.min(g.minutes,rep.minutes)/Math.max(g.minutes,rep.minutes):0;
    const weight=complexitySimilarity(g.complexity,rep.complexity)!;
    const players=g.minPlayers&&g.maxPlayers&&rep.minPlayers&&rep.maxPlayers?Math.max(0,Math.min(g.maxPlayers,rep.maxPlayers)-Math.max(g.minPlayers,rep.minPlayers)+1)/(Math.max(g.maxPlayers,rep.maxPlayers)-Math.min(g.minPlayers,rep.minPlayers)+1):0;
-   g.similarity=Math.min(1,.4+(g.theme&&g.theme===rep.theme?.15:0)+.2*duration+.15*weight+.1*players);
+   const sameTheme=!!g.theme&&g.theme===rep.theme;
+   g.similarity=Math.min(1,.4+(sameTheme?.15:0)+.2*duration+.15*weight+.1*players);g.match={sameTheme,duration,weight,players};
    g.overlap=s.overlapWeight*Math.max(0,(g.similarity-.55)/.45);g.alternative=rep.id;
    }
   }
@@ -57,21 +58,48 @@ export function calculate(state:State){
  const cull=ranked.slice(keepCount).reverse();
  return {ranked,cull,kept,keepCount,protectedCount};
 }
+type Match={sameTheme:boolean;duration:number;weight:number;players:number};
 export type Scored=ReturnType<typeof calculate>['ranked'][number];
-export function reason(g:Scored){return g.p.mustKeep?'Must keep':g.representative?'Group representative':g.p.thumb===-1?'Your thumbs down':g.low>0?'Below rating threshold':g.overlap>0?'Similar game retained':g.meanPenalty>0?'Mean interaction':g.boxPenalty>0?'Larger box':'Overall keep score';}
+export type FactorKind='mustKeep'|'representative'|'thumbUp'|'thumbDown'|'rating'|'lowRating'|'overlap'|'mean'|'box'|'cutoff';
+/** One reason behind a game's keep score. `impact` is signed keep-score points (negative pushes toward the cull list). */
+export type Factor={kind:FactorKind;impact:number;badge:string;title:string;lines:string[];alternativeId?:string};
+const pts=(n:number)=>`${n<0?'−':'+'}${Math.abs(n).toFixed(1)}`;
+const pct=(n:number)=>`${Math.round(n*100)}%`;
+const players=(g:Game)=>g.minPlayers&&g.maxPlayers?(g.minPlayers===g.maxPlayers?`${g.minPlayers}`:`${g.minPlayers}–${g.maxPlayers}`):'?';
+/** Every factor behind a game's keep score, protections first, then by size of effect. */
+export function keepFactors(g:Scored,state:State,result:ReturnType<typeof calculate>):Factor[]{
+ const s=state.settings,out:Factor[]=[];
+ if(g.p.mustKeep)out.push({kind:'mustKeep',impact:0,badge:'',title:'Must keep',lines:['You marked this game to always keep.']});
+ if(g.representative)out.push({kind:'representative',impact:0,badge:'',title:'Group representative',lines:[`Highest-scoring game among similar ${g.group} (${g.mode||'any mode'}) games.`,'Protected so this kind of game stays on your shelf.']});
+ if(g.bias>0)out.push({kind:'thumbUp',impact:g.bias,badge:pts(g.bias),title:'Your thumbs up',lines:[`Adds ${g.bias.toFixed(1)} keep points.`]});
+ if(g.bias<0)out.push({kind:'thumbDown',impact:g.bias,badge:pts(g.bias),title:'Your thumbs down',lines:[`Removes ${(-g.bias).toFixed(1)} keep points.`]});
+ const missed=s.ratingWeight-g.ratingPoints;
+ if(missed>=.5)out.push({kind:'rating',impact:-missed,badge:g.rating.toFixed(1),title:`Rating ${g.rating.toFixed(1)}/10`,lines:[
+  g.personalRating==null?'BGG average. Add your own rating in the game details to override it.':'Your personal rating.',
+  `Earns ${g.ratingPoints.toFixed(1)} of ${s.ratingWeight} rating points (full points at 9/10).`]});
+ if(g.low>0)out.push({kind:'lowRating',impact:-g.low,badge:pts(-g.low),title:'Below your rating threshold',lines:[
+  `${g.rating.toFixed(1)}/10 is ${(s.lowThreshold-g.rating).toFixed(1)} below your ${s.lowThreshold.toFixed(1)} threshold.`,
+  `${s.lowPenalty} points off per point below: ${pts(-g.low)}.`]});
+ const alt=result.ranked.find(o=>o.id===g.alternative);
+ if(g.overlap>0&&alt&&g.match){const m=g.match;out.push({kind:'overlap',impact:-g.overlap,badge:pts(-g.overlap),title:`Similar to ${alt.name}`,alternativeId:alt.id,lines:[
+  result.kept.has(alt.id)?`You’re keeping ${alt.name}, which covers the same play experience.`:`${alt.name} is also a cull candidate.`,
+  `Same group: ${g.group}${g.mode?` · ${g.mode}`:''}`,
+  `Weight ${g.complexity?.toFixed(2)} vs ${alt.complexity?.toFixed(2)} · ${pct(m.weight)} match`,
+  m.sameTheme?`Same theme: ${g.theme}`:`Different theme: ${g.theme||'unset'} vs ${alt.theme||'unset'}`,
+  g.minutes&&alt.minutes?`Length ${g.minutes} vs ${alt.minutes} min · ${pct(m.duration)} match`:'Length unknown for one game',
+  `Players ${players(g)} vs ${players(alt)} · ${pct(m.players)} overlap`,
+  `Similarity ${pct(g.similarity)} (deductions start above 55%): ${pts(-g.overlap)}`,
+  'Click to open the similar game.']});}
+ if(g.meanPenalty>0)out.push({kind:'mean',impact:-g.meanPenalty,badge:pts(-g.meanPenalty),title:`Mean interaction ${g.mean}/5`,lines:['Draft rating of how much players attack or block each other.',`Costs ${g.meanPenalty.toFixed(1)} keep points.`]});
+ if(g.boxPenalty>0)out.push({kind:'box',impact:-g.boxPenalty,badge:pts(-g.boxPenalty),title:`${['Small','Standard','Large','Oversized'][g.p.box!]} box`,lines:[`Shelf-space deduction: ${pts(-g.boxPenalty)}.`]});
+ if(!result.kept.has(g.id)&&!out.some(f=>f.impact<0)){const rank=result.ranked.findIndex(o=>o.id===g.id)+1;
+  out.push({kind:'cutoff',impact:0,badge:`#${rank}`,title:'Just below the keep cutoff',lines:[`Ranks #${rank} of ${result.ranked.length} by keep score (${g.score.toFixed(1)}).`,`You’re keeping the top ${result.keepCount} (target ${s.target}).`]});}
+ const order=(f:Factor)=>f.kind==='mustKeep'?0:f.kind==='representative'?1:2;
+ return out.sort((a,b)=>order(a)-order(b)||Math.abs(b.impact)-Math.abs(a.impact));
+}
+/** Plain-text summary of the factors, for the CSV export. */
 export function cullExplanation(g:Scored,state:State,result:ReturnType<typeof calculate>){
- const factors:{weight:number;clause:string}[]=[];
- const ratingSource=g.personalRating==null?'its BGG rating':'your rating';
- const ratingGap=Math.max(0,state.settings.ratingWeight-g.ratingPoints)+g.low;
- if(ratingGap>0)factors.push({weight:ratingGap,clause:g.low>0?`${ratingSource} of ${g.rating.toFixed(1)}/10 is below your ${state.settings.lowThreshold.toFixed(1)} threshold`:`${ratingSource} of ${g.rating.toFixed(1)}/10 earns fewer rating points`});
- if(g.bias<0)factors.push({weight:-g.bias,clause:'you gave it a thumbs down'});
- const alternative=result.ranked.find(other=>other.id===g.alternative);
- if(g.overlap>0&&alternative)factors.push({weight:g.overlap,clause:result.kept.has(alternative.id)?`you’re keeping “${alternative.name}”, which offers a similar play experience`:`its play experience overlaps with “${alternative.name}”, which is also a cull candidate`});
- if(g.meanPenalty>0)factors.push({weight:g.meanPenalty,clause:`its draft meanness rating of ${g.mean}/5 lowers its keep score`});
- if(g.boxPenalty>0)factors.push({weight:g.boxPenalty,clause:`its ${['small','standard','large','oversized'][g.p.box!]} box adds a shelf-space penalty`});
- const main=factors.sort((a,b)=>b.weight-a.weight).slice(0,2).map(f=>f.clause);
- if(!main.length)return `It falls below the keep cutoff at your current target of ${state.settings.target} games.`;
- return `It falls below the keep cutoff mainly because ${main.join(' and ')}.`;
+ return keepFactors(g,state,result).filter(f=>f.impact<0||f.kind==='cutoff').map(f=>f.badge?`${f.title} (${f.badge})`:f.title).join('; ');
 }
 export function parseCSV(text:string){
  const rows:string[][]=[];let row:string[]=[],cell='',quoted=false;

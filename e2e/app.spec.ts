@@ -92,3 +92,20 @@ test("an unknown BGG username shows a clear error", async ({ page }) => {
   await expect(page.getByText("BoardGameGeek doesn’t recognise that username.")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("heading", { name: "No collection for nobody yet" })).toBeVisible();
 });
+
+test("cull reasons show as icons with details on hover", async ({ page }) => {
+  const friend = uniqueProfile("icons");
+  await signIn(page);
+  await page.goto(`/?profile=${friend}`);
+  await page.getByRole("button", { name: "Import from BoardGameGeek" }).click();
+  await expect(page.getByText("Imported 3 entries")).toBeVisible({ timeout: 30_000 });
+
+  await page.locator("#target").fill("1");
+  await page.getByRole("tab", { name: /Cull list/ }).click();
+  const row = page.locator("article", { hasText: "Test Tiles" });
+  await expect(row.getByRole("button", { name: /^Rating 6\.4\/10/ })).toHaveText("6.4");
+  await expect(row.getByRole("button", { name: /^Below your rating threshold/ })).toHaveText("−9.0");
+
+  await row.getByRole("button", { name: /^Below your rating threshold/ }).hover();
+  await expect(page.getByRole("tooltip")).toContainText("6.4/10 is 0.6 below your 7.0 threshold.");
+});
