@@ -1,0 +1,11 @@
+node_modules
+.next
+.vinext
+dist
+.wrangler
+.sites-runtime
+.git
+.env*
+*.tsbuildinfo
+Dockerfile
+.dockerignore
