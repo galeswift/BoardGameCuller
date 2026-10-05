@@ -11,7 +11,7 @@ export async function GET(request:Request){
  const user=await getUser();if(!user)return json({error:'Sign in to load your saved collection.'},401);
  let profile;try{profile=resolveProfile(new URL(request.url).searchParams.get('profile'));}catch(e){return json({error:(e as Error).message},400);}
  try{const db=await getDb();const [state,prefs,owners]=await Promise.all([db.query<{settings:Partial<Settings>;games:Game[]|null;updated:string}>('SELECT settings,games,updated FROM collection_state WHERE owner=$1',[profile]),db.query<{game_id:string;data:Preference;updated:string}>('SELECT game_id,data,updated FROM preferences WHERE owner=$1',[profile]),db.query<{owner:string}>('SELECT owner FROM collection_state ORDER BY owner')]);
-  const s=state.rows[0];const timestamps=[s?.updated,...prefs.rows.map(p=>p.updated)].filter(Boolean).sort();return json({profile,profiles:owners.rows.map(o=>o.owner),games:s?.games??(profile===defaultProfile()?seed:[]),settings:{...defaults,...s?.settings},preferences:Object.fromEntries(prefs.rows.map(p=>[p.game_id,p.data])),savedAt:timestamps.at(-1)||null});
+  const s=state.rows[0];const timestamps=[s?.updated,...prefs.rows.map(p=>p.updated)].filter(Boolean).sort();return json({profile,profiles:[...new Set([defaultProfile(),...owners.rows.map(o=>o.owner)])].sort(),games:s?.games??(profile===defaultProfile()?seed:[]),settings:{...defaults,...s?.settings},preferences:Object.fromEntries(prefs.rows.map(p=>[p.game_id,p.data])),savedAt:timestamps.at(-1)||null});
  }catch(e){console.error('Collection load failed',e);return json({error:'Your saved collection is temporarily unavailable. Please retry.'},503);}
 }
 export async function POST(request:Request){

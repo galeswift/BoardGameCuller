@@ -43,7 +43,7 @@ importers:
         version: 1.31.0(react@19.2.6)
       next:
         specifier: 16.3.4
-        version: 16.3.4(@babel/core@7.29.0(supports-color@10.2.2))(@types/node@22.19.19)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
+        version: 16.3.4(@babel/core@7.29.0(supports-color@10.2.2))(@playwright/test@1.63.0)(@types/node@22.19.19)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
       next-themes:
         specifier: ^0.4.6
         version: 0.4.6(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
@@ -87,6 +87,12 @@ importers:
       '@electric-sql/pglite':
         specifier: ^0.5.8
         version: 0.5.8
+      '@electric-sql/pglite-socket':
+        specifier: ^0.2.11
+        version: 0.2.11(@electric-sql/pglite-age@0.0.9(@electric-sql/pglite@0.5.8))(@electric-sql/pglite-pg_hashids@0.0.9(@electric-sql/pglite@0.5.8))(@electric-sql/pglite-pg_ivm@0.0.9(@electric-sql/pglite@0.5.8))(@electric-sql/pglite-pg_textsearch@0.0.10(@electric-sql/pglite@0.5.8))(@electric-sql/pglite-pg_uuidv7@0.0.9(@electric-sql/pglite@0.5.8))(@electric-sql/pglite-pgtap@0.0.9(@electric-sql/pglite@0.5.8))(@electric-sql/pglite-pgvector@0.0.9(@electric-sql/pglite@0.5.8))(@electric-sql/pglite@0.5.8)
+      '@playwright/test':
+        specifier: ^1.63.0
+        version: 1.63.0
       '@tailwindcss/postcss':
         specifier: 4.2.1
         version: 4.2.1
@@ -227,6 +233,54 @@ packages:
 
   '@date-fns/tz@1.5.0':
     resolution: {integrity: sha512-lwYN/vDPeNRULcepoE/LO2Pgx+7/RV+S9ARfbc9lr2DtGkOD7pAiruHvbR1RX3Qyf6ja47EWJDMsNK5vK08DJg==}
+
+  '@electric-sql/pglite-age@0.0.9':
+    resolution: {integrity: sha512-IdNy5P5nxwKVeSPLjDLXkp/eYffH5roympM7fTG+g9ehzBrDnQ9TT2tfCJ2vRVcOSPQBp4oURzfRE19cs/x8ZA==}
+    peerDependencies:
+      '@electric-sql/pglite': 0.5.8
+
+  '@electric-sql/pglite-pg_hashids@0.0.9':
+    resolution: {integrity: sha512-NffsZH+FaRLp0WzsYG35BW/wOHLsTs325zjgp+PnKlWeGyW523Mbw4EZ1Awm02C3QWBU9p8Y2Fk02Al5NpRGUg==}
+    peerDependencies:
+      '@electric-sql/pglite': 0.5.8
+
+  '@electric-sql/pglite-pg_ivm@0.0.9':
+    resolution: {integrity: sha512-mbTcDLQyzeOG4rX6LLHhWDPJeQUv2xHvayKtf4oE7xujWEGWEDUEJP1+U0pXXELtIoWiUzzPBWjzKY1mRisqkQ==}
+    peerDependencies:
+      '@electric-sql/pglite': 0.5.8
+
+  '@electric-sql/pglite-pg_textsearch@0.0.10':
+    resolution: {integrity: sha512-tsL1rTYU4tzIC44htL7/0nS6C2XC5Srz0tfxU1LJelCqNIBkpFI9Esw1JbuVCaQKUHGDbPgAz8JYavNxwbuRVw==}
+    peerDependencies:
+      '@electric-sql/pglite': 0.5.8
+
+  '@electric-sql/pglite-pg_uuidv7@0.0.9':
+    resolution: {integrity: sha512-n/JbzoQMF9jFKFxGLRIzUfC1O4V2vTE0Pt3uoAO6/EP7dX5m1h4zBdezQAcT2JFostD0YWUdzHj9iYvcbUGM1A==}
+    peerDependencies:
+      '@electric-sql/pglite': 0.5.8
+
+  '@electric-sql/pglite-pgtap@0.0.9':
+    resolution: {integrity: sha512-VIyclfOawUN0IJROKiCnrVxsZQEG7tixgiC8c8nxp9TlBhI79MZqotoqlqvdPzGHmjWZlcgJ7tC8InOcy+2A/A==}
+    peerDependencies:
+      '@electric-sql/pglite': 0.5.8
+
+  '@electric-sql/pglite-pgvector@0.0.9':
+    resolution: {integrity: sha512-ue4iBW651gDQwBwn97Ekv1lYGPvXa1ymHbRbTCSL0Ib286PRDD1VDOwzwEoekZuO/wctMbTzKzlwdgDwYrqZ8A==}
+    peerDependencies:
+      '@electric-sql/pglite': 0.5.8
+
+  '@electric-sql/pglite-socket@0.2.11':
+    resolution: {integrity: sha512-DKnJBf7+5zFCXXGZAGUvGoWKetPPvaQ7fLSGVqP5onzgBhV9vvTcHigireMROMglgovvhoXHaMOKqt69/vts4A==}
+    hasBin: true
+    peerDependencies:
+      '@electric-sql/pglite': 0.5.8
+      '@electric-sql/pglite-age': 0.0.9
+      '@electric-sql/pglite-pg_hashids': 0.0.9
+      '@electric-sql/pglite-pg_ivm': 0.0.9
+      '@electric-sql/pglite-pg_textsearch': 0.0.10
+      '@electric-sql/pglite-pg_uuidv7': 0.0.9
+      '@electric-sql/pglite-pgtap': 0.0.9
+      '@electric-sql/pglite-pgvector': 0.0.9
 
   '@electric-sql/pglite@0.5.8':
     resolution: {integrity: sha512-n9tsbUOhwx2epK1V0ZG9Ar4SHWUju04dhmzZXiSBXwBoleOvIfals33NAaWgagQVAL4Rbvx/Ptsu3P+pA09f6Q==}
@@ -654,6 +708,11 @@ packages:
 
   '@oxc-project/types@0.151.0':
     resolution: {integrity: sha512-J1yXrIlNDZVzE3ada310xeAw7nH8yCAyLPuUIsjKatFPmfn5bS1oW+cM+QsGOtVWd5nhSpbwZWx/rue+r5Z+PA==}
+
+  '@playwright/test@1.63.0':
+    resolution: {integrity: sha512-oxMK4vllB9RK5NQ2l1pq1IfOf2AvnEuj/vYGDj0H2nMtmtZpKtCwt/l00GEO6xjGfpBNAvjovvYdCm50dRQkpQ==}
+    engines: {node: '>=20'}
+    hasBin: true
 
   '@radix-ui/number@1.1.3':
     resolution: {integrity: sha512-Road2bidD0uu/1BGDOWNdPI06g0lIRy6IF9GZcIrDK2KGItfor8IQwQa+yM2ERgHM1MmHxaxpTzk0/Jp42lNfA==}
@@ -3036,6 +3095,16 @@ packages:
     resolution: {integrity: sha512-qcJu88Q2IWqJsDD529JKMdwGm/dvInW4HvQnRwiH9JtihJvzGOscDtHE3x1pBKeUOTysQ8kVmLnJ2kJu7yhcGA==}
     engines: {node: '>=12'}
 
+  playwright-core@1.63.0:
+    resolution: {integrity: sha512-rYCsBF/M5HjUch52bbtVONEFjv6Xu8sm8h72dNlR5bzIE1fvC/bxgspzkjSfU+MweEMmPM8KJebG6nnyxo5mCg==}
+    engines: {node: '>=20'}
+    hasBin: true
+
+  playwright@1.63.0:
+    resolution: {integrity: sha512-+7ziBLidS4NaNCdt57SUDT+wYmmd5fmiQejUic/kb+YsYSCPyOOE9sebzMjNmQrsnNpDJqd4WHvV/8lfKfUDUg==}
+    engines: {node: '>=20'}
+    hasBin: true
+
   possible-typed-array-names@1.1.0:
     resolution: {integrity: sha512-/+5VFTchJDoVj3bhoqi6UeymcD00DAwb1nJwamzPvHEszJ4FpF6SNNbUbOS8yI56qHzdV8eK0qEfOSiodkTdxg==}
     engines: {node: '>= 0.4'}
@@ -3785,6 +3854,45 @@ snapshots:
 
   '@date-fns/tz@1.5.0': {}
 
+  '@electric-sql/pglite-age@0.0.9(@electric-sql/pglite@0.5.8)':
+    dependencies:
+      '@electric-sql/pglite': 0.5.8
+
+  '@electric-sql/pglite-pg_hashids@0.0.9(@electric-sql/pglite@0.5.8)':
+    dependencies:
+      '@electric-sql/pglite': 0.5.8
+
+  '@electric-sql/pglite-pg_ivm@0.0.9(@electric-sql/pglite@0.5.8)':
+    dependencies:
+      '@electric-sql/pglite': 0.5.8
+
+  '@electric-sql/pglite-pg_textsearch@0.0.10(@electric-sql/pglite@0.5.8)':
+    dependencies:
+      '@electric-sql/pglite': 0.5.8
+
+  '@electric-sql/pglite-pg_uuidv7@0.0.9(@electric-sql/pglite@0.5.8)':
+    dependencies:
+      '@electric-sql/pglite': 0.5.8
+
+  '@electric-sql/pglite-pgtap@0.0.9(@electric-sql/pglite@0.5.8)':
+    dependencies:
+      '@electric-sql/pglite': 0.5.8
+
+  '@electric-sql/pglite-pgvector@0.0.9(@electric-sql/pglite@0.5.8)':
+    dependencies:
+      '@electric-sql/pglite': 0.5.8
+
+  '@electric-sql/pglite-socket@0.2.11(@electric-sql/pglite-age@0.0.9(@electric-sql/pglite@0.5.8))(@electric-sql/pglite-pg_hashids@0.0.9(@electric-sql/pglite@0.5.8))(@electric-sql/pglite-pg_ivm@0.0.9(@electric-sql/pglite@0.5.8))(@electric-sql/pglite-pg_textsearch@0.0.10(@electric-sql/pglite@0.5.8))(@electric-sql/pglite-pg_uuidv7@0.0.9(@electric-sql/pglite@0.5.8))(@electric-sql/pglite-pgtap@0.0.9(@electric-sql/pglite@0.5.8))(@electric-sql/pglite-pgvector@0.0.9(@electric-sql/pglite@0.5.8))(@electric-sql/pglite@0.5.8)':
+    dependencies:
+      '@electric-sql/pglite': 0.5.8
+      '@electric-sql/pglite-age': 0.0.9(@electric-sql/pglite@0.5.8)
+      '@electric-sql/pglite-pg_hashids': 0.0.9(@electric-sql/pglite@0.5.8)
+      '@electric-sql/pglite-pg_ivm': 0.0.9(@electric-sql/pglite@0.5.8)
+      '@electric-sql/pglite-pg_textsearch': 0.0.10(@electric-sql/pglite@0.5.8)
+      '@electric-sql/pglite-pg_uuidv7': 0.0.9(@electric-sql/pglite@0.5.8)
+      '@electric-sql/pglite-pgtap': 0.0.9(@electric-sql/pglite@0.5.8)
+      '@electric-sql/pglite-pgvector': 0.0.9(@electric-sql/pglite@0.5.8)
+
   '@electric-sql/pglite@0.5.8': {}
 
   '@emnapi/core@1.10.0':
@@ -4001,7 +4109,7 @@ snapshots:
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:
-      '@jridgewell/sourcemap-codec': 1.5.5
+      '@jridgewell/sourcemap-codec': 1.6.0
       '@jridgewell/trace-mapping': 0.3.31
 
   '@jridgewell/remapping@2.3.5':
@@ -4018,7 +4126,7 @@ snapshots:
   '@jridgewell/trace-mapping@0.3.31':
     dependencies:
       '@jridgewell/resolve-uri': 3.1.2
-      '@jridgewell/sourcemap-codec': 1.5.5
+      '@jridgewell/sourcemap-codec': 1.6.0
 
   '@napi-rs/wasm-runtime@0.2.12':
     dependencies:
@@ -4077,6 +4185,10 @@ snapshots:
   '@nolyfill/is-core-module@1.0.39': {}
 
   '@oxc-project/types@0.151.0': {}
+
+  '@playwright/test@1.63.0':
+    dependencies:
+      playwright: 1.63.0
 
   '@radix-ui/number@1.1.3': {}
 
@@ -5099,7 +5211,7 @@ snapshots:
       debug: 4.4.3(supports-color@10.2.2)
       minimatch: 10.2.5
       semver: 7.8.5
-      tinyglobby: 0.2.16
+      tinyglobby: 0.2.17
       ts-api-utils: 2.5.0(typescript@5.9.3)
       typescript: 5.9.3
     transitivePeerDependencies:
@@ -5889,6 +6001,10 @@ snapshots:
     optionalDependencies:
       picomatch: 4.0.4
 
+  fdir@6.5.0(picomatch@4.0.7):
+    optionalDependencies:
+      picomatch: 4.0.7
+
   file-entry-cache@8.0.0:
     dependencies:
       flat-cache: 4.0.1
@@ -6370,7 +6486,7 @@ snapshots:
       react: 19.2.6
       react-dom: 19.2.6(react@19.2.6)
 
-  next@16.3.4(@babel/core@7.29.0(supports-color@10.2.2))(@types/node@22.19.19)(react-dom@19.2.6(react@19.2.6))(react@19.2.6):
+  next@16.3.4(@babel/core@7.29.0(supports-color@10.2.2))(@playwright/test@1.63.0)(@types/node@22.19.19)(react-dom@19.2.6(react@19.2.6))(react@19.2.6):
     dependencies:
       '@next/env': 16.3.4
       '@swc/helpers': 0.5.23
@@ -6389,6 +6505,7 @@ snapshots:
       '@next/swc-linux-x64-musl': 16.3.4
       '@next/swc-win32-arm64-msvc': 16.3.4
       '@next/swc-win32-x64-msvc': 16.3.4
+      '@playwright/test': 1.63.0
       sharp: 0.35.4(@types/node@22.19.19)
     transitivePeerDependencies:
       - '@babel/core'
@@ -6525,6 +6642,12 @@ snapshots:
   picomatch@4.0.4: {}
 
   picomatch@4.0.7: {}
+
+  playwright-core@1.63.0: {}
+
+  playwright@1.63.0:
+    dependencies:
+      playwright-core: 1.63.0
 
   possible-typed-array-names@1.1.0: {}
 
@@ -7008,8 +7131,8 @@ snapshots:
 
   tinyglobby@0.2.17:
     dependencies:
-      fdir: 6.5.0(picomatch@4.0.4)
-      picomatch: 4.0.4
+      fdir: 6.5.0(picomatch@4.0.7)
+      picomatch: 4.0.7
 
   to-regex-range@5.0.1:
     dependencies:

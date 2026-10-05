@@ -88,7 +88,7 @@ describe("profiles", () => {
     expect(friend.preferences).toEqual({ "10": { thumb: -1 } });
     expect(me.preferences).toEqual({ "10": { thumb: 1 } });
     expect(me.games).toHaveLength(seed.length);
-    expect(me.profiles).toEqual(["friend"]);
+    expect(me.profiles).toEqual(["friend", "galeswift"]);
   });
 });
 

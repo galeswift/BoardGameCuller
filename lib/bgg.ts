@@ -3,7 +3,8 @@ import type {Game} from './model';
 
 // BGG XML API2. Since 2025 every request needs a registered application token:
 // https://boardgamegeek.com/applications
-const BASE='https://boardgamegeek.com/xmlapi2';
+// BGG_API_BASE lets browser tests point at a local fake BGG.
+const apiBase=()=>process.env.BGG_API_BASE||'https://boardgamegeek.com/xmlapi2';
 const THING_BATCH=20;
 const REQUEST_GAP_MS=2000;
 
@@ -21,7 +22,7 @@ async function bggXml(path:string):Promise<Node>{
  const token=process.env.BGG_API_TOKEN;
  if(!token)throw new BggError('BGG import is not configured. Set BGG_API_TOKEN on the server.');
  for(let attempt=0;attempt<10;attempt++){
-  const r=await fetch(`${BASE}/${path}`,{headers:{Authorization:`Bearer ${token}`},cache:'no-store'});
+  const r=await fetch(`${apiBase()}/${path}`,{headers:{Authorization:`Bearer ${token}`},cache:'no-store'});
   // 202 means BGG queued the collection export; 429/5xx are rate limits or hiccups. Both clear on retry.
   if(r.status===202||r.status===429||r.status>=500){await sleep(r.status===202?3000:5000);continue;}
   if(r.status===401||r.status===403)throw new BggError('BoardGameGeek rejected the API token.');
