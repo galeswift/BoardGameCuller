@@ -3,7 +3,7 @@ import { aiCopy, decodeEntities, fetchBggDetails, templateCopy, writeListings, t
 
 const facts = (extra: Partial<ListingFacts> = {}): ListingFacts => ({
   id: "1", name: "Heat", publisher: "Days of Wonder", minPlayers: 1, maxPlayers: 6, bestPlayers: "4,5", minutes: 60,
-  complexity: 2.2, rating: 8.0, similar: ["Flamme Rouge", "Downforce"], condition: "Used", ...extra,
+  complexity: 2.2, similar: ["Flamme Rouge", "Downforce"], condition: "Used", ...extra,
 });
 const THING = `<?xml version="1.0" encoding="utf-8"?><items><item type="boardgame" id="1">
  <yearpublished value="2022"/>
@@ -41,8 +41,8 @@ describe("decodeEntities", () => {
 describe("fetchBggDetails", () => {
   it("parses year, rank, description, links and useful comments", async () => {
     const d = (await run(fetchBggDetails(["1"]))).get("1")!;
-    expect(fetchMock.mock.calls[0][0]).toContain("thing?id=1&stats=1&comments=1&pagesize=25");
-    expect(d).toMatchObject({ year: "2022", rank: 42, categories: ["Racing"], mechanics: ["Hand Management"] });
+    expect(fetchMock.mock.calls[0][0]).toContain("thing?id=1&comments=1&pagesize=25");
+    expect(d).toMatchObject({ year: "2022", categories: ["Racing"], mechanics: ["Hand Management"] });
     expect(d.description).toContain("Race your car around the track.\n\nManage your heat — or spin out!");
     expect(d.comments).toEqual([
       { rating: 9, text: "Tense racing with clever heat management, plays great at five." },
@@ -57,7 +57,8 @@ describe("templateCopy", () => {
     const c = templateCopy(facts(), d);
     expect(c.intro).toMatch(/^Heat \(2022\) is a medium-light board game for 1–6 players that plays in about 60 minutes\. Race your car/);
     expect(c.intro).toContain("Second sentence here.");
-    expect(c.appeal).toBe("If you enjoy Flamme Rouge or Downforce, this is a natural fit for your shelf. It holds a 8.0/10 average rating on BoardGameGeek and ranks #42 overall.");
+    expect(c.appeal).toBe("If you enjoy Flamme Rouge or Downforce, this is a natural fit for your shelf.");
+    expect(JSON.stringify(c)).not.toMatch(/rating|rank|\/10/i);
   });
 
   it("trims the publisher blurb to whole sentences", () => {
@@ -69,7 +70,7 @@ describe("templateCopy", () => {
   });
 
   it("works without BGG details", () => {
-    expect(templateCopy(facts({ similar: [], minPlayers: null }))).toMatchObject({ intro: "Heat is a medium-light board game that plays in about 60 minutes.", appeal: "It holds a 8.0/10 average rating on BoardGameGeek." });
+    expect(templateCopy(facts({ similar: [], minPlayers: null }))).toMatchObject({ intro: "Heat is a medium-light board game that plays in about 60 minutes.", appeal: "" });
   });
 });
 
@@ -85,8 +86,10 @@ describe("aiCopy", () => {
     const body = JSON.parse(String(init!.body));
     expect(body).toMatchObject({ model: "gpt-5-mini", response_format: { type: "json_object" }, reasoning_effort: "low", max_completion_tokens: 2500 });
     expect(body.messages[1].content).toContain("Similar games: Flamme Rouge, Downforce");
-    expect(body.messages[1].content).toContain("[9/10] Tense racing");
+    expect(body.messages[1].content).toContain("- Tense racing");
     expect(body.messages[1].content).not.toContain("alice");
+    expect(body.messages[1].content).not.toMatch(/rating|rank|\/10/i);
+    expect(body.messages[0].content).toContain("Don't mention ratings");
   });
 
   it("omits reasoning_effort for non-reasoning models", async () => {
@@ -104,11 +107,26 @@ describe("aiCopy", () => {
   });
 });
 
+describe("comment selection", () => {
+  it("summarises players who liked the game when there are enough of them", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    const d = { description: "", categories: [], mechanics: [], comments: [
+      { rating: 9, text: "Loved it, brilliant tension every game." }, { rating: 8, text: "Great with friends and quick to teach." },
+      { rating: 7, text: "Solid engine building with a nice arc." }, { rating: 3, text: "Too random and far too long for me." },
+    ] };
+    fetchMock.mockResolvedValue(openAi('{"intro":"x","appeal":"y"}'));
+    await aiCopy(facts(), d);
+    const prompt = JSON.parse(String(fetchMock.mock.calls[0][1]!.body)).messages[1].content;
+    expect(prompt).toContain("brilliant tension");
+    expect(prompt).not.toContain("Too random");
+  });
+});
+
 describe("writeListings", () => {
   it("uses the template when no OpenAI key is set", async () => {
     const out = await run(writeListings([facts()]));
     expect(out.ai).toBe(false);
-    expect(out.copies["1"]).toMatchObject({ source: "template", year: "2022", rank: 42 });
+    expect(out.copies["1"]).toMatchObject({ source: "template", year: "2022" });
     expect(fetchMock.mock.calls.every(([u]) => !u.includes("openai"))).toBe(true);
   });
 

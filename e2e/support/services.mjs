@@ -39,6 +39,14 @@ createServer((req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const send = (status, body = "") => res.writeHead(status, { "content-type": "text/xml" }).end(body);
   if (url.pathname === "/health") return send(200, "ok");
+  // Fake BoardGamePrices.com: store prices for Test Tiles.
+  if (url.pathname === "/api/info") {
+    const items = url.searchParams.get("eid").split(",").filter((id) => id === "900002").map((id) => ({ external_id: id, url: `https://boardgameprices.com/item/show/${id}`, prices: [
+      { product: 40, shipping: "6.00", shipping_known: true, stock: "Y" }, { product: 42, shipping: "6.00", shipping_known: true, stock: "Y" },
+      { product: 44, shipping: "8.00", shipping_known: true, stock: "Y" }, { product: 20, shipping: "5.00", shipping_known: true, stock: "N" },
+    ] }));
+    return res.writeHead(200, { "content-type": "application/json" }).end(JSON.stringify({ currency: "USD", items }));
+  }
   if (req.headers.authorization !== `Bearer ${BGG_TOKEN}`) return send(401);
   if (url.pathname === "/xmlapi2/collection") {
     if (url.searchParams.get("username") === "nobody")

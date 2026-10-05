@@ -1,13 +1,13 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Game } from "@/lib/model";
-import type { PriceQuote } from "@/lib/prices";
+import type { PriceQuote, QuoteResult } from "@/lib/prices";
 
 const h = vi.hoisted(() => ({
   signedIn: true,
   token: "",
   pool: null as unknown,
   fetchBgg: null as unknown as (username: string, previous: Game[]) => Promise<Game[]>,
-  quote: null as unknown as (games: { id: string; name: string }[]) => Promise<Record<string, PriceQuote>>,
+  quote: null as unknown as (games: { id: string; name: string }[], opts: { sitename: string }) => Promise<QuoteResult>,
 }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({ get: () => (h.signedIn ? { value: h.token } : undefined) }),
@@ -15,7 +15,7 @@ vi.mock("next/headers", () => ({
 vi.mock("@/db", async (original) => ({ ...(await original<object>()), getDb: async () => h.pool }));
 vi.mock("@/lib/prices", async (original) => ({
   ...(await original<object>()),
-  quotePrices: (g: { id: string; name: string }[]) => h.quote(g),
+  quotePrices: (g: { id: string; name: string }[], opts: { sitename: string }) => h.quote(g, opts),
 }));
 vi.mock("@/lib/bgg", async (original) => ({
   ...(await original<object>()),
@@ -32,8 +32,10 @@ import seed from "@/lib/collection.json";
 import { apiRequest, createTestDb, game } from "./helpers";
 
 const quoteFor = (id: string, checkedAt = new Date().toISOString()): PriceQuote => ({
-  used: { median: Number(id) * 10, low: 1, high: 99, count: 3, source: "bgg" }, new: null, checkedAt,
+  v: 2, checkedAt, new: null,
+  used: { median: Number(id) * 10, low: 1, high: 99, count: 3, sources: [{ source: "bgg", median: Number(id) * 10, low: 1, high: 99, count: 3 }] },
 });
+const quotes = (games: { id: string }[]): QuoteResult => ({ quotes: Object.fromEntries(games.map((g) => [g.id, quoteFor(g.id)])), sources: ["bgg"], warnings: [] });
 const lookup = async (mode: string, ids: string[]) => {
   const res = await prices(apiRequest("/api/prices", { method: "POST", body: { mode, games: ids.map((id) => ({ id, name: `Game ${id}` })) } }));
   return { status: res.status, body: await res.json() };
@@ -56,7 +58,7 @@ beforeEach(async () => {
   h.signedIn = true;
   h.token = sessionToken()!;
   h.fetchBgg = async () => [game("1"), game("2")];
-  h.quote = async (games) => Object.fromEntries(games.map((g) => [g.id, quoteFor(g.id)]));
+  h.quote = async (games) => quotes(games);
 });
 
 describe("auth and request checks", () => {
@@ -201,7 +203,7 @@ describe("price lookup route", () => {
 
   it("only reads the cache in cached mode", async () => {
     let calls = 0;
-    h.quote = async () => { calls++; return {}; };
+    h.quote = async (games) => { calls++; return quotes(games); };
     expect((await lookup("cached", ["1", "2"])).body.prices).toEqual({});
     expect(calls).toBe(0);
   });
@@ -209,7 +211,7 @@ describe("price lookup route", () => {
   it("looks up missing games, caches them, and skips fresh ones", async () => {
     const asked: string[][] = [];
     const base = h.quote;
-    h.quote = async (games) => { asked.push(games.map((g) => g.id)); return base(games); };
+    h.quote = async (games, opts) => { asked.push(games.map((g) => g.id)); return base(games, opts); };
 
     expect((await lookup("missing", ["1", "2"])).body.prices["2"].used.median).toBe(20);
     expect((await lookup("missing", ["1", "2", "3"])).body.prices).toMatchObject({ "1": {}, "2": {}, "3": {} });
@@ -223,10 +225,33 @@ describe("price lookup route", () => {
     await db.pg.query("INSERT INTO prices(game_id,quote,checked) VALUES($1,$2,$3)", ["2", JSON.stringify(quoteFor("2")), new Date().toISOString()]);
     const asked: string[][] = [];
     const base = h.quote;
-    h.quote = async (games) => { asked.push(games.map((g) => g.id)); return base(games); };
+    h.quote = async (games, opts) => { asked.push(games.map((g) => g.id)); return base(games, opts); };
 
     await lookup("missing", ["1", "2"]);
     await lookup("refresh", ["1", "2"]);
     expect(asked).toEqual([["1"], ["1", "2"]]);
+  });
+
+  it("treats prices saved in an older format as missing", async () => {
+    const legacy = { used: { median: 5, low: 5, high: 5, count: 3, source: "bgg" }, new: null, checkedAt: new Date().toISOString() };
+    await db.pg.query("INSERT INTO prices(game_id,quote,checked) VALUES($1,$2,$3)", ["1", JSON.stringify(legacy), legacy.checkedAt]);
+    expect((await lookup("cached", ["1"])).body.prices).toEqual({});
+    expect((await lookup("missing", ["1"])).body.prices["1"].v).toBe(2);
+  });
+
+  it("identifies the site to price providers and reports sources", async () => {
+    let site = "";
+    h.quote = async (games, opts) => { site = opts.sitename; return { ...quotes(games), sources: ["bgg", "bgp"], warnings: ["Some eBay lookups failed."] }; };
+    const { body } = await lookup("missing", ["1"]);
+    expect(site).toBe("https://cull.test");
+    expect(body).toMatchObject({ sources: ["bgg", "bgp"], warnings: ["Some eBay lookups failed."] });
+  });
+
+  it("doesn't cache anything when every source fails", async () => {
+    h.quote = async (games) => ({ ...quotes(games), sources: [], warnings: ["BoardGamePrices.com unavailable."] });
+    const res = await lookup("missing", ["1"]);
+    expect(res.status).toBe(502);
+    expect(res.body.error).toContain("No price source could be reached");
+    expect((await db.pg.query("SELECT count(*)::int AS n FROM prices")).rows[0]).toEqual({ n: 0 });
   });
 });

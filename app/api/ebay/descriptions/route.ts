@@ -9,7 +9,7 @@ const text=(v:unknown,max:number)=>typeof v==='string'&&v.length<=max;
 function valid(g:unknown):g is ListingFacts{
  const f=g as ListingFacts;
  return !!f&&typeof f.id==='string'&&/^\d{1,10}$/.test(f.id)&&text(f.name,300)&&text(f.publisher,300)
-  &&num(f.minPlayers)&&num(f.maxPlayers)&&num(f.minutes)&&num(f.complexity)&&num(f.rating)
+  &&num(f.minPlayers)&&num(f.maxPlayers)&&num(f.minutes)&&num(f.complexity)
   &&(f.bestPlayers===undefined||text(f.bestPlayers,100))&&Array.isArray(f.similar)&&f.similar.length<=5&&f.similar.every(s=>text(s,300))
   &&CONDITIONS.includes(f.condition);
 }

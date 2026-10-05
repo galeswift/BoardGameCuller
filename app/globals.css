@@ -96,3 +96,4 @@
 .ebay-footer{border-top:1px solid var(--border);padding-top:16px;display:flex;flex-direction:column;align-items:flex-start;gap:6px}
 @media(max-width:600px){.ebay-row{grid-template-columns:1fr}.ebay-sheet{padding:18px!important}}
 @media(prefers-color-scheme:dark){.ebay-message{background:#243f69;color:#d5e4ff}.ebay-source.ai{color:#c9b5ff;background:#2c2348;border-color:#47386f}.ebay-source.template{color:#c3cede;background:#263449;border-color:#3b4c66}}
+.price-line.linked{cursor:pointer}.price-credit{margin:0;padding:8px 22px;font-size:.8125rem;color:var(--muted-foreground);border-bottom:1px solid var(--border);background:var(--card)}.price-credit a{font-weight:600}

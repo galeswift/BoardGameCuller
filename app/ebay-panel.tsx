@@ -12,7 +12,7 @@ import type {ListingCopy,ListingFacts} from '@/lib/listing';
 import {CONDITIONS,DEFAULT_CONDITION,complexitySimilarity,type Condition,type Scored} from '@/lib/model';
 import type {PriceQuote} from '@/lib/prices';
 
-type Draft={title:string;price:string;condition:Condition;description:string;notes:string;source:ListingCopy['source'];year?:string;rank?:number};
+type Draft={title:string;price:string;condition:Condition;description:string;notes:string;source:ListingCopy['source'];year?:string};
 type Props={open:boolean;onOpenChange:(open:boolean)=>void;cull:Scored[];all:Scored[];prices:Record<string,PriceQuote>;profile:string|null};
 
 const BATCH=5;
@@ -38,7 +38,6 @@ function factsList(g:Scored,d:Draft){
   g.complexity&&`Complexity: ${g.complexity.toFixed(2)} / 5 (BoardGameGeek weight)`,
   g.publisher&&`Publisher: ${g.publisher}`,
   d.year&&`Published: ${d.year}`,
-  `BoardGameGeek rating: ${g.rating.toFixed(1)} / 10${d.rank?` (rank #${d.rank})`:''}`,
  ].filter((f):f is string=>!!f);
 }
 
@@ -61,13 +60,13 @@ export function EbayPanel({open,onOpenChange,cull,all,prices,profile}:Props){
    for(let i=0;i<games.length;i+=BATCH){
     const batch=games.slice(i,i+BATCH);
     setBusy(`Writing ${Math.min(done+batch.length,games.length)} of ${games.length}…`);
-    const facts:ListingFacts[]=batch.map(g=>({id:g.id,name:g.name,publisher:g.publisher||'',minPlayers:g.minPlayers,maxPlayers:g.maxPlayers,bestPlayers:g.bestPlayers,minutes:g.minutes,complexity:g.complexity,rating:g.rating,similar:similarTo(g,all),condition:drafts[g.id]?.condition??g.p.condition??DEFAULT_CONDITION}));
+    const facts:ListingFacts[]=batch.map(g=>({id:g.id,name:g.name,publisher:g.publisher||'',minPlayers:g.minPlayers,maxPlayers:g.maxPlayers,bestPlayers:g.bestPlayers,minutes:g.minutes,complexity:g.complexity,similar:similarTo(g,all),condition:drafts[g.id]?.condition??g.p.condition??DEFAULT_CONDITION}));
     const r=await fetch('/api/ebay/descriptions',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({games:facts})});
     const j=await r.json() as {copies:Record<string,ListingCopy>;ai:boolean;warning?:string;error?:string};
     if(!r.ok)throw new Error(j.error||'Couldn’t write descriptions.');
     ai&&=j.ai;warning||=j.warning||'';
     setDrafts(d=>{const next={...d};for(const g of batch){const c=j.copies[g.id];if(!c)continue;const prev=d[g.id];const condition=prev?.condition??g.p.condition??DEFAULT_CONDITION;
-     next[g.id]={title:prev?.title??defaultTitle(g.name,g.publisher||''),price:prev?.price??priceFor(prices[g.id],condition),condition,notes:prev?.notes??'',description:`${c.intro}\n\n${c.appeal}`.trim(),source:c.source,year:c.year,rank:c.rank};}return next;});
+     next[g.id]={title:prev?.title??defaultTitle(g.name,g.publisher||''),price:prev?.price??priceFor(prices[g.id],condition),condition,notes:prev?.notes??'',description:`${c.intro}\n\n${c.appeal}`.trim(),source:c.source,year:c.year};}return next;});
     done+=batch.length;
    }
    setMessage([warning,ai?'':'Descriptions use the built-in template. Set OPENAI_API_KEY on the server for AI-written copy.'].filter(Boolean).join(' '));
@@ -94,7 +93,7 @@ export function EbayPanel({open,onOpenChange,cull,all,prices,profile}:Props){
      <label>Condition<Select value={d.condition} onValueChange={v=>edit(g.id,{condition:v as Condition,price:d.price||priceFor(prices[g.id],v as Condition)})}><SelectTrigger aria-label={`eBay condition for ${g.name}`}><SelectValue/></SelectTrigger><SelectContent>{CONDITIONS.map(c=><SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></label></div>
     <label>Description<Textarea rows={7} value={d.description} onChange={e=>edit(g.id,{description:e.target.value})}/></label>
     <label>Condition notes for buyers<Textarea rows={2} value={d.notes} placeholder="e.g. All components present, cards sleeved, light shelf wear on the box." onChange={e=>edit(g.id,{notes:e.target.value})}/></label>
-    <p className="hint">The listing also includes player count, play time, complexity, publisher, BGG rating and a condition statement.</p>
+    <p className="hint">The listing also includes player count, play time, complexity, publisher, year and a condition statement.</p>
    </article>;})}</section>}
   <footer className="ebay-footer"><Button onClick={download} disabled={!ready.length||!!busy}><Download/>Download eBay drafts{ready.length?` (${ready.length})`:''}</Button><p className="hint">eBay Seller Hub → Reports → Uploads → Upload template. Listings arrive as drafts; add photos and shipping before publishing.</p></footer>
  </SheetContent></Sheet>;

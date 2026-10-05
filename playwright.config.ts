@@ -31,6 +31,7 @@ export default defineConfig({
         APP_PASSWORD,
         BGG_API_TOKEN: "e2e-token",
         BGG_API_BASE: "http://127.0.0.1:3199/xmlapi2",
+        BGP_API_BASE: "http://127.0.0.1:3199",
         DEFAULT_PROFILE: "galeswift",
       },
     },

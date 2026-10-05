@@ -154,12 +154,17 @@ test("the cull list shows estimated used and new values", async ({ page }) => {
   await page.getByRole("tab", { name: /Cull list/ }).click();
 
   await page.getByRole("button", { name: "Check prices" }).click();
-  await expect(page.getByText("Prices updated from BGG GeekMarket")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Prices updated from BGG GeekMarket, BoardGamePrices.com")).toBeVisible({ timeout: 30_000 });
   const row = page.locator("article", { hasText: "Test Tiles" });
   await expect(row.getByRole("button", { name: /^Used value \$25\./ })).toBeVisible();
-  await expect(row.getByRole("button", { name: /^New value \$45\./ })).toBeVisible();
-  await row.getByRole("button", { name: /^Used value/ }).hover();
-  await expect(page.getByRole("tooltip")).toContainText("Median of 3 BGG GeekMarket listings · $20–$30");
+  // New: the three in-stock store prices outweigh a single GeekMarket listing.
+  await expect(row.getByRole("button", { name: /^New value \$42\./ })).toBeVisible();
+  // Each price's label carries its full source breakdown.
+  await expect(row.getByRole("button", { name: /^Used value/ })).toHaveAccessibleName(/BGG GeekMarket: \$25 median of 3 listings \(\$20–\$30\).*Shipping is not included\./);
+  await expect(row.getByRole("button", { name: /^New value/ })).toHaveAccessibleName(/BoardGamePrices\.com: \$42 median of 3 store prices \(\$40–\$44\), shipping ~\$6.*Shipping is extra: typically ~\$6\./);
+  await row.getByRole("button", { name: /^New value/ }).hover();
+  await expect(page.getByRole("tooltip")).toContainText("New ≈ $42 + ~$6 shipping");
+  await expect(page.getByRole("link", { name: "BoardGamePrices.com" })).toHaveAttribute("href", "https://boardgameprices.com");
 
   // Cached prices load on their own next time.
   await page.reload();
