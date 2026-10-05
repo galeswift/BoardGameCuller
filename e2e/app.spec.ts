@@ -48,7 +48,12 @@ test("a friend's BGG collection imports into its own profile", async ({ page }) 
   await page.getByRole("button", { name: "Import from BoardGameGeek" }).click();
   await expect(page.getByText("Imported 3 entries from BoardGameGeek")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText("2 games · 1 expansions reviewed separately")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Fixture Quest", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Fixture Quest", exact: true })).toHaveAttribute("href", "https://boardgamegeek.com/boardgame/900001");
+
+  // The pencil opens the details panel; the name links to BGG.
+  await page.getByRole("button", { name: "Edit details for Fixture Quest" }).click();
+  await expect(page.getByRole("dialog").getByRole("heading", { name: "Fixture Quest" })).toBeVisible();
+  await page.keyboard.press("Escape");
 
   // Preferences save and survive a reload.
   const keep = page.getByRole("button", { name: "Prefer keep Fixture Quest" });
