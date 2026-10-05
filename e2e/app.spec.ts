@@ -167,3 +167,35 @@ test("the cull list shows estimated used and new values", async ({ page }) => {
   await expect(page.locator("article", { hasText: "Test Tiles" }).getByRole("button", { name: /^Used value \$25\./ })).toBeVisible();
   await expect(page.getByRole("button", { name: "Refresh prices" })).toBeVisible();
 });
+
+test("selected cull games become an eBay drafts upload file", async ({ page }) => {
+  const friend = uniqueProfile("ebay");
+  await signIn(page);
+  await page.goto(`/?profile=${friend}`);
+  await page.getByRole("button", { name: "Import from BoardGameGeek" }).click();
+  await expect(page.getByText("Imported 3 entries")).toBeVisible({ timeout: 30_000 });
+  await page.locator("#target").fill("1");
+  await page.getByRole("tab", { name: /Cull list/ }).click();
+
+  await page.getByRole("button", { name: "Sell on eBay" }).click();
+  const panel = page.getByRole("dialog");
+  await panel.getByRole("checkbox", { name: "Sell Test Tiles" }).click();
+  await panel.getByRole("button", { name: "Write descriptions (1)" }).click();
+  await expect(panel.getByText("Template", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(panel.getByText("Descriptions use the built-in template")).toBeVisible();
+
+  const description = panel.getByRole("textbox", { name: "Description" });
+  await expect(description).toHaveValue(/^Test Tiles \(2021\) is a medium-light board game for 2–4 players that plays in about 30 minutes\. Lay tiles to build patterns\./);
+  await expect(panel.getByRole("textbox", { name: /^Title/ })).toHaveValue("Test Tiles Board Game - Tile Co.");
+  await panel.getByRole("textbox", { name: "Condition notes for buyers" }).fill("All tiles present.");
+  await panel.getByRole("spinbutton", { name: "Price (USD)" }).fill("27");
+
+  const [download] = await Promise.all([page.waitForEvent("download"), panel.getByRole("button", { name: "Download eBay drafts (1)" }).click()]);
+  expect(download.suggestedFilename()).toBe(`ebay-drafts-${friend}.csv`);
+  const { readFile } = await import("node:fs/promises");
+  const lines = (await readFile(await download.path(), "utf8")).split("\r\n");
+  expect(lines[1]).toMatch(/^Action\(SiteID=US/);
+  expect(lines[2]).toMatch(/^Draft,BGG-900002,180349,Test Tiles Board Game - Tile Co\.,,27\.00,1,,3000,"?<h2>Test Tiles<\/h2>/);
+  expect(lines[2]).toContain("<p>All tiles present.</p>");
+  await expect(panel.getByText("Upload it in eBay Seller Hub")).toBeVisible();
+});

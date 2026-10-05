@@ -10,7 +10,7 @@ export const REQUEST_GAP_MS=2000;
 
 export class BggError extends Error{}
 
-const parser=new XMLParser({ignoreAttributes:false,attributeNamePrefix:'',parseTagValue:false,isArray:(name,_path,_leaf,isAttribute)=>!isAttribute&&['item','link','name','result','poll-summary','error','listing'].includes(name)});
+const parser=new XMLParser({ignoreAttributes:false,attributeNamePrefix:'',parseTagValue:false,isArray:(name,_path,_leaf,isAttribute)=>!isAttribute&&['item','link','name','result','poll-summary','error','listing','comment','rank'].includes(name)});
 export const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 const num=(v:unknown)=>{const n=Number(v);return Number.isFinite(n)&&n>0?n:null;};
 const text=(v:unknown):string=>typeof v==='object'&&v!==null?String((v as Record<string,unknown>)['#text']??''):String(v??'');

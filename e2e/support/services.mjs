@@ -27,7 +27,7 @@ const THINGS = items(`
   <poll-summary name="suggested_numplayers"><result name="bestwith" value="Best with 2–3 players"/></poll-summary>
   <link type="boardgamecategory" id="1" value="Fantasy"/><link type="boardgamemechanic" id="2" value="Cooperative Game"/>
   <statistics><ratings><averageweight value="3.2"/></ratings></statistics></item>
- <item type="boardgame" id="900002"><minplayers value="2"/><maxplayers value="4"/><playingtime value="30"/>
+ <item type="boardgame" id="900002"><yearpublished value="2021"/><description>Lay tiles to build patterns.&amp;#10;&amp;#10;Score points for matching colours.</description><comments page="1" totalitems="1"><comment username="pat" rating="7" value="Quick to teach and surprisingly thinky for a filler game."/></comments><minplayers value="2"/><maxplayers value="4"/><playingtime value="30"/>
   <link type="boardgamecategory" id="3" value="Abstract Strategy"/><link type="boardgamepublisher" id="9" value="Tile Co."/>
   <marketplacelistings>${listing("good", "20.00", 30)}${listing("likenew", "25.00", 60)}${listing("verygood", "30.00", 90)}${listing("good", "99.00", 10, "EUR")}${listing("new", "45.00", 20)}</marketplacelistings>
   <statistics><ratings><averageweight value="1.8"/></ratings></statistics></item>
