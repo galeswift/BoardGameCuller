@@ -143,3 +143,27 @@ test("the cull list exports to Noble Knight's trade-in template", async ({ page 
   expect(sheet).toContain(">Unpunched<");
   expect(sheet).not.toContain(">Fixture Quest<");
 });
+
+test("the cull list shows estimated used and new values", async ({ page }) => {
+  const friend = uniqueProfile("value");
+  await signIn(page);
+  await page.goto(`/?profile=${friend}`);
+  await page.getByRole("button", { name: "Import from BoardGameGeek" }).click();
+  await expect(page.getByText("Imported 3 entries")).toBeVisible({ timeout: 30_000 });
+  await page.locator("#target").fill("1");
+  await page.getByRole("tab", { name: /Cull list/ }).click();
+
+  await page.getByRole("button", { name: "Check prices" }).click();
+  await expect(page.getByText("Prices updated from BGG GeekMarket")).toBeVisible({ timeout: 30_000 });
+  const row = page.locator("article", { hasText: "Test Tiles" });
+  await expect(row.getByRole("button", { name: /^Used value \$25\./ })).toBeVisible();
+  await expect(row.getByRole("button", { name: /^New value \$45\./ })).toBeVisible();
+  await row.getByRole("button", { name: /^Used value/ }).hover();
+  await expect(page.getByRole("tooltip")).toContainText("Median of 3 BGG GeekMarket listings · $20–$30");
+
+  // Cached prices load on their own next time.
+  await page.reload();
+  await page.getByRole("tab", { name: /Cull list/ }).click();
+  await expect(page.locator("article", { hasText: "Test Tiles" }).getByRole("button", { name: /^Used value \$25\./ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refresh prices" })).toBeVisible();
+});

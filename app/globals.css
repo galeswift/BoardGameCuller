@@ -81,3 +81,9 @@
 .trade-cell{display:flex;flex-direction:column;align-items:flex-start;gap:8px}.trade-cell .keep-check{min-height:28px}.condition-select{width:100%;max-width:150px}
 @media(max-width:1100px){.cull-list .trade-cell{grid-column:2/7;flex-direction:row;align-items:center;gap:16px}}
 @media(max-width:900px){.cull-list .trade-cell{grid-column:2/4;grid-row:5;flex-direction:column;align-items:flex-start;gap:8px}}
+.price-value{display:flex;flex-direction:column;gap:2px;align-items:stretch}.price-line{display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:2px 6px;border-radius:6px;font-variant-numeric:tabular-nums;cursor:help;text-align:left}.price-line:hover,.price-line:focus-visible{background:var(--accent)}.price-line span{font-size:.6875rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted-foreground)}.price-line strong{font-size:.9375rem;font-weight:600;color:#2f6b4f}.price-missing{color:var(--muted-foreground);text-align:center}
+@media(min-width:1101px){.cull-list .game-row,.cull-columns{grid-template-columns:24px minmax(180px,1fr) minmax(210px,1.15fr) 62px 96px 124px 136px 140px;gap:14px}}
+@media(min-width:901px) and (max-width:1100px){.cull-list .game-row,.cull-columns{grid-template-columns:20px minmax(150px,1fr) minmax(170px,1.1fr) 58px 92px 124px 135px;gap:12px}.cull-list .trade-cell{grid-column:2/8}}
+@media(max-width:900px){.cull-list .price-value{grid-column:3;grid-row:3;align-self:start}.price-line{padding:1px 2px;gap:4px}.price-line span{font-size:.625rem}}
+@media(prefers-color-scheme:dark){.price-line strong{color:#95dcb3}}
+.price-line strong.none{color:var(--muted-foreground);font-weight:400}

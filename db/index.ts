@@ -14,6 +14,11 @@ CREATE TABLE IF NOT EXISTS preferences (
   data jsonb NOT NULL,
   updated text NOT NULL,
   PRIMARY KEY (owner, game_id)
+);
+CREATE TABLE IF NOT EXISTS prices (
+  game_id text PRIMARY KEY,
+  quote jsonb NOT NULL,
+  checked text NOT NULL
 );`;
 
 // Survive Next dev hot reloads without opening a new pool each time.

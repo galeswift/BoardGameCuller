@@ -15,6 +15,9 @@ await new PGLiteSocketServer({ db, host: "127.0.0.1", port: DB_PORT, maxConnecti
 const item = (id, name, subtype, rating, average) =>
   `<item objecttype="thing" objectid="${id}" subtype="${subtype}"><name sortindex="1">${name}</name>` +
   `<stats minplayers="1" maxplayers="4" playingtime="60"><rating value="${rating}"><average value="${average}"/></rating></stats></item>`;
+const daysAgo = (n) => new Date(Date.now() - n * 864e5).toUTCString();
+const listing = (condition, price, age, currency = "USD") =>
+  `<listing><listdate value="${daysAgo(age)}"/><price currency="${currency}" value="${price}"/><condition value="${condition}"/></listing>`;
 const items = (body) => `<?xml version="1.0" encoding="utf-8"?><items>${body}</items>`;
 
 const STANDALONE = items(item("900001", "Fixture Quest", "boardgame", "9", "8.1") + item("900002", "Test Tiles", "boardgame", "N/A", "6.4"));
@@ -26,6 +29,7 @@ const THINGS = items(`
   <statistics><ratings><averageweight value="3.2"/></ratings></statistics></item>
  <item type="boardgame" id="900002"><minplayers value="2"/><maxplayers value="4"/><playingtime value="30"/>
   <link type="boardgamecategory" id="3" value="Abstract Strategy"/><link type="boardgamepublisher" id="9" value="Tile Co."/>
+  <marketplacelistings>${listing("good", "20.00", 30)}${listing("likenew", "25.00", 60)}${listing("verygood", "30.00", 90)}${listing("good", "99.00", 10, "EUR")}${listing("new", "45.00", 20)}</marketplacelistings>
   <statistics><ratings><averageweight value="1.8"/></ratings></statistics></item>
  <item type="boardgameexpansion" id="900003"><minplayers value="1"/><maxplayers value="4"/><playingtime value="90"/>
   <link type="boardgameexpansion" id="900001" value="Fixture Quest" inbound="true"/>

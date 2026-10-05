@@ -5,20 +5,20 @@ import type {Game} from './model';
 // https://boardgamegeek.com/applications
 // BGG_API_BASE lets browser tests point at a local fake BGG.
 const apiBase=()=>process.env.BGG_API_BASE||'https://boardgamegeek.com/xmlapi2';
-const THING_BATCH=20;
-const REQUEST_GAP_MS=2000;
+export const THING_BATCH=20;
+export const REQUEST_GAP_MS=2000;
 
 export class BggError extends Error{}
 
-const parser=new XMLParser({ignoreAttributes:false,attributeNamePrefix:'',parseTagValue:false,isArray:(name,_path,_leaf,isAttribute)=>!isAttribute&&['item','link','name','result','poll-summary','error'].includes(name)});
-const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
+const parser=new XMLParser({ignoreAttributes:false,attributeNamePrefix:'',parseTagValue:false,isArray:(name,_path,_leaf,isAttribute)=>!isAttribute&&['item','link','name','result','poll-summary','error','listing'].includes(name)});
+export const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 const num=(v:unknown)=>{const n=Number(v);return Number.isFinite(n)&&n>0?n:null;};
 const text=(v:unknown):string=>typeof v==='object'&&v!==null?String((v as Record<string,unknown>)['#text']??''):String(v??'');
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type Node=any;
+export type Node=any;
 
-async function bggXml(path:string):Promise<Node>{
+export async function bggXml(path:string):Promise<Node>{
  const token=process.env.BGG_API_TOKEN;
  if(!token)throw new BggError('BGG import is not configured. Set BGG_API_TOKEN on the server.');
  for(let attempt=0;attempt<10;attempt++){
