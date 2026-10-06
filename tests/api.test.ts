@@ -32,7 +32,7 @@ import seed from "@/lib/collection.json";
 import { apiRequest, createTestDb, game } from "./helpers";
 
 const quoteFor = (id: string, checkedAt = new Date().toISOString()): PriceQuote => ({
-  v: 2, checkedAt, new: null, sources: ["bgg", "bgp"],
+  v: 3, checkedAt, new: null, sources: ["bgg", "bgp"],
   used: { median: Number(id) * 10, low: 1, high: 99, count: 3, sources: [{ source: "bgg", median: Number(id) * 10, low: 1, high: 99, count: 3 }] },
 });
 const quotes = (games: { id: string }[]): QuoteResult => ({ quotes: Object.fromEntries(games.map((g) => [g.id, quoteFor(g.id)])), sources: ["bgg"], warnings: [] });
@@ -255,7 +255,7 @@ describe("price lookup route", () => {
     const legacy = { used: { median: 5, low: 5, high: 5, count: 3, source: "bgg" }, new: null, checkedAt: new Date().toISOString() };
     await db.pg.query("INSERT INTO prices(game_id,quote,checked) VALUES($1,$2,$3)", ["1", JSON.stringify(legacy), legacy.checkedAt]);
     expect((await lookup("cached", ["1"])).body.prices).toEqual({});
-    expect((await lookup("missing", ["1"])).body.prices["1"].v).toBe(2);
+    expect((await lookup("missing", ["1"])).body.prices["1"].v).toBe(3);
   });
 
   it("identifies the site to price providers and reports sources", async () => {

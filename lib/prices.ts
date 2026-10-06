@@ -13,7 +13,8 @@ import {REQUEST_GAP_MS,THING_BATCH,bggXml,sleep,type Node} from './bgg';
 export type PriceSource='bgg'|'ebay'|'bgp';
 export type SourceEstimate={source:PriceSource;median:number;low:number;high:number;count:number;since?:string;until?:string;shipping?:number;url?:string};
 export type PriceEstimate={median:number;low:number;high:number;count:number;shipping?:number;sources:SourceEstimate[]};
-export const QUOTE_VERSION=2;
+// Bump when price rules change, so quotes saved under the old rules are rechecked.
+export const QUOTE_VERSION=3;
 /** `sources` lists the sources that answered when the quote was made; `due` is added on read when it needs rechecking. */
 export type PriceQuote={v:typeof QUOTE_VERSION;used:PriceEstimate|null;new:PriceEstimate|null;checkedAt:string;sources?:PriceSource[];due?:boolean};
 export type Listing={price:number;date?:number;shipping?:number};
@@ -22,6 +23,13 @@ type Split={new:Listing[];used:Listing[]};
 export const MIN_LISTINGS=3;
 const RECENT_MS=3*365*24*3600*1000;
 const BGG_USED=new Set(['likenew','verygood','good','acceptable']);
+// Seller notes that say the listing is only accessories or parts, e.g. "player mats only".
+// Deliberately narrow: "Base game only, no expansions" is a real copy of the game.
+const ACCESSORY_ONLY=/\b(?:mats?|playmats?|sleeves?|inserts?|organi[sz]ers?|promos?|tokens?|coins?|cards?|dice|box|components?|accessor(?:y|ies)|upgrades?|stickers?|minis|miniatures|meeples?)\b[^.!\n]{0,30}\bonly\b|\b(?:empty box|box only|for parts)\b/i;
+export const accessoryOnly=(notes:string)=>ACCESSORY_ONLY.test(notes);
+// With enough store prices to anchor on, listings far below retail are
+// mislabeled or partial (new below half of retail, used below 30%).
+const FLOOR={new:.5,used:.3};
 const round=(n:number)=>Math.round(n*100)/100;
 
 const medianOf=(xs:number[])=>{const s=[...xs].sort((a,b)=>a-b),mid=s.length>>1;return s.length%2?s[mid]:(s[mid-1]+s[mid])/2;};
@@ -57,7 +65,7 @@ export async function fetchBggMarket(ids:string[]):Promise<Map<string,Split>>{
    const split:Split={new:[],used:[]};
    for(const l of (item.marketplacelistings?.listing||[]) as Node[]){
     const price=Number(l.price?.value),condition=String(l.condition?.value||'');
-    if(l.price?.currency!=='USD'||!(price>0))continue;
+    if(l.price?.currency!=='USD'||!(price>0)||accessoryOnly(String(l.notes?.value??'')))continue;
     const date=Date.parse(l.listdate?.value);
     const listing={price,...(Number.isFinite(date)?{date}:{})};
     if(condition==='new')split.new.push(listing);else if(BGG_USED.has(condition))split.used.push(listing);
@@ -79,12 +87,14 @@ export async function fetchBgp(ids:string[],sitename:string):Promise<Map<string,
   const params=new URLSearchParams({eid:ids.slice(i,i+BGP_BATCH).join(','),sitename,currency:'USD',destination:'US'});
   const r=await fetch(`${bgpBase()}/api/info?${params}`,{cache:'no-store'});
   if(!r.ok)throw new Error(`BoardGamePrices.com returned ${r.status}.`);
-  const j=await r.json() as {currency?:string;items?:{external_id?:string;url?:string;prices?:{product?:number|string;shipping?:number|string;shipping_known?:boolean;stock?:string}[]}[]};
+  const j=await r.json() as {currency?:string;items?:{external_id?:string;url?:string;prices?:{product?:number|string;shipping?:number|string;shipping_known?:boolean;stock?:string;country?:string}[]}[]};
   if(j.currency&&j.currency!=='USD')continue;
+  // One BGG ID can map to several items (editions, languages): merge them.
   for(const item of j.items||[]){
    if(!item.external_id)continue;
-   const listings=(item.prices||[]).filter(p=>p.stock==='Y').map(p=>{const shipping=Number(p.shipping);return {price:Number(p.product),...(p.shipping_known&&Number.isFinite(shipping)?{shipping}:{})};}).filter(l=>l.price>0);
-   out.set(String(item.external_id),{listings,url:item.url||''});
+   const listings=(item.prices||[]).filter(p=>p.stock==='Y'&&(p.country??'US')==='US').map(p=>{const shipping=Number(p.shipping);return {price:Number(p.product),...(p.shipping_known&&Number.isFinite(shipping)?{shipping}:{})};}).filter(l=>l.price>0);
+   const prev=out.get(String(item.external_id));
+   out.set(String(item.external_id),{listings:[...(prev?.listings??[]),...listings],url:prev?.url||(listings.length?item.url||'':'')});
   }
  }
  return out;
@@ -111,7 +121,7 @@ async function ebayAccessToken():Promise<string>{
 const words=(s:string)=>s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,' ').trim().split(' ').filter(Boolean);
 const STOP=new Set(['the','a','an','of','and','to','in','for','on']);
 // Accessories and partial lots that would drag the median around.
-const JUNK=/\b(sleeves?|insert|organi[sz]er|promos?|playmat|mat|lot|bundle|replacement|parts?|pieces?|expansion|upgrade|stickers?|coins?|tokens?|meeples?|minis|miniatures|dice|box only|empty|proxy|custom|3d printed|stl)\b/;
+const JUNK=/\b(sleeves?|inserts?|organi[sz]ers?|promos?|playmats?|mats?|lot|bundle|replacement|parts?|pieces?|expansion|upgrade|stickers?|coins?|tokens?|meeples?|minis|miniatures|dice|box only|empty|proxy|custom|3d printed|stl)\b/;
 
 /** Whether an eBay listing title is plausibly the base game itself. */
 export function titleMatches(listingTitle:string,gameName:string){
@@ -150,12 +160,12 @@ export async function quotePrices(games:{id:string;name:string}[],{sitename,now=
   fetchBggMarket(ids).then(m=>{sources.push('bgg');return m;}).catch(e=>{console.error('BGG prices failed',e);warnings.push(`BGG GeekMarket unavailable: ${e instanceof Error?e.message:e}`);return new Map<string,Split>();}),
   fetchBgp(ids,sitename).then(m=>{sources.push('bgp');return m;}).catch(e=>{console.error('BoardGamePrices.com failed',e);warnings.push('BoardGamePrices.com unavailable.');return new Map<string,{listings:Listing[];url:string}>();}),
  ]);
- const ebay=new Map<string,{new:SourceEstimate|null;used:SourceEstimate|null}>();
+ const ebay=new Map<string,{new:Listing[];used:Listing[]}>();
  if(ebayConfigured()){
   sources.push('ebay');
   let failed=false;
   await eachLimit(games,4,async g=>{
-   const one=async(c:'new'|'used')=>{try{return estimate(await fetchEbay(g.name,c),'ebay');}catch(e){console.error('eBay price lookup failed',g.name,e);failed=true;return null;}};
+   const one=async(c:'new'|'used')=>{try{return await fetchEbay(g.name,c);}catch(e){console.error('eBay price lookup failed',g.name,e);failed=true;return [];}};
    ebay.set(g.id,{used:await one('used'),new:await one('new')});
   });
   if(failed)warnings.push('Some eBay lookups failed.');
@@ -163,11 +173,14 @@ export async function quotePrices(games:{id:string;name:string}[],{sitename,now=
  const checkedAt=new Date(now).toISOString(),quotes:Record<string,PriceQuote>={};
  for(const g of games){
   const split=market.get(g.id)??{new:[],used:[]};
-  const bgg=(c:'new'|'used')=>{const all=split[c],recent=estimate(all.filter(l=>l.date==null||now-l.date<=RECENT_MS),'bgg');return recent&&recent.count>=MIN_LISTINGS?recent:estimate(all,'bgg');};
-  const store=bgp.get(g.id);
+  const store=bgp.get(g.id),retail=store?estimate(store.listings,'bgp',store.url):null;
+  const anchor=retail&&retail.count>=MIN_LISTINGS?retail.median:null;
+  const sane=(c:'new'|'used')=>(l:Listing)=>anchor==null||l.price>=anchor*FLOOR[c];
+  const bgg=(c:'new'|'used')=>{const all=split[c].filter(sane(c)),recent=estimate(all.filter(l=>l.date==null||now-l.date<=RECENT_MS),'bgg');return recent&&recent.count>=MIN_LISTINGS?recent:estimate(all,'bgg');};
+  const fromEbay=(c:'new'|'used')=>estimate((ebay.get(g.id)?.[c]??[]).filter(sane(c)),'ebay');
   quotes[g.id]={v:QUOTE_VERSION,checkedAt,sources:[...sources].sort(),
-   used:combine(bgg('used'),ebay.get(g.id)?.used??null),
-   new:combine(bgg('new'),ebay.get(g.id)?.new??null,store?estimate(store.listings,'bgp',store.url):null)};
+   used:combine(bgg('used'),fromEbay('used')),
+   new:combine(bgg('new'),fromEbay('new'),retail)};
  }
  return {quotes,sources,warnings};
 }

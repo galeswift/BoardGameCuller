@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { availableSources, combine, estimate, fetchBgp, fetchBggMarket, missesSources, quotePrices, resetEbayToken, titleMatches, type PriceQuote, type SourceEstimate } from "@/lib/prices";
+import { accessoryOnly, availableSources, combine, estimate, fetchBgp, fetchBggMarket, missesSources, quotePrices, resetEbayToken, titleMatches, type PriceQuote, type SourceEstimate } from "@/lib/prices";
 
 const NOW = Date.parse("2026-10-01T00:00:00Z");
 const SITE = { sitename: "https://cull.test", now: NOW };
@@ -130,7 +130,7 @@ describe("quotePrices", () => {
     const out = await run(quotePrices([{ id: "1", name: "Heat: Pedal to the Metal" }], SITE));
     expect(out.sources.sort()).toEqual(["bgg", "bgp", "ebay"]);
     const q = out.quotes["1"];
-    expect(q).toMatchObject({ v: 2, checkedAt: new Date(NOW).toISOString(), sources: ["bgg", "bgp", "ebay"] });
+    expect(q).toMatchObject({ v: 3, checkedAt: new Date(NOW).toISOString(), sources: ["bgg", "bgp", "ebay"] });
     // Used: BGG 30 and eBay 36 → 33; only eBay knows shipping (9).
     expect(q.used).toMatchObject({ median: 33, shipping: 9, count: 6 });
     expect(q.used!.sources.map((s) => s.source)).toEqual(["bgg", "ebay"]);
@@ -140,10 +140,10 @@ describe("quotePrices", () => {
   });
 
   it("uses whatever is available when eBay isn't configured", async () => {
-    serve({ bgg: marketXml({ "1": [listing("good", "12", "2026-01-01")] }), bgp: bgpJson({ "1": [store(40, "5.00"), store(44, "5.00"), store(48, "5.00")] }) });
+    serve({ bgg: marketXml({ "1": [listing("good", "14", "2026-01-01")] }), bgp: bgpJson({ "1": [store(40, "5.00"), store(44, "5.00"), store(48, "5.00")] }) });
     const out = await run(quotePrices([{ id: "1", name: "Game" }], SITE));
     expect(out.sources.sort()).toEqual(["bgg", "bgp"]);
-    expect(out.quotes["1"].used).toMatchObject({ median: 12, count: 1 });
+    expect(out.quotes["1"].used).toMatchObject({ median: 14, count: 1 });
     expect(out.quotes["1"].new).toMatchObject({ median: 44, shipping: 5 });
     expect(fetchMock.mock.calls.some(([u]) => u.includes("ebay"))).toBe(false);
   });
@@ -177,7 +177,7 @@ describe("quotePrices", () => {
 });
 
 describe("missesSources", () => {
-  const quote = (sources?: PriceQuote["sources"]): PriceQuote => ({ v: 2, used: null, new: null, checkedAt: "2026-10-01T00:00:00Z", ...(sources ? { sources } : {}) });
+  const quote = (sources?: PriceQuote["sources"]): PriceQuote => ({ v: 3, used: null, new: null, checkedAt: "2026-10-01T00:00:00Z", ...(sources ? { sources } : {}) });
   it("flags quotes made without a source that's available now", () => {
     expect(availableSources()).toEqual(["bgg", "bgp"]);
     expect(missesSources(quote(["bgp"]))).toBe(true);
@@ -196,5 +196,57 @@ describe("missesSources", () => {
     const out = await run(quotePrices([{ id: "1", name: "Game" }], SITE));
     expect(out.quotes["1"].sources).toEqual(["bgg"]);
     expect(missesSources(out.quotes["1"])).toBe(true);
+  });
+});
+
+describe("accessoryOnly", () => {
+  it("spots listings for accessories or parts", () => {
+    expect(accessoryOnly("See images. This is for the dual layer player mats only. They keep the cubes from sliding.")).toBe(true);
+    expect(accessoryOnly("Sleeves only, no game")).toBe(true);
+    expect(accessoryOnly("Box only - no components")).toBe(true);
+    expect(accessoryOnly("Selling for parts")).toBe(true);
+    expect(accessoryOnly("Promo cards only")).toBe(true);
+  });
+  it("keeps real copies of the game", () => {
+    expect(accessoryOnly("KS edition - Base game only with Foil Card replacements. No expansions.")).toBe(false);
+    expect(accessoryOnly("Cards sleeved. Only played once.")).toBe(false);
+    expect(accessoryOnly("Complete, includes insert and promos")).toBe(false);
+    expect(accessoryOnly("")).toBe(false);
+  });
+});
+
+describe("bad data", () => {
+  it("skips GeekMarket listings whose notes say they're accessories only", async () => {
+    const mats = `<listing><listdate value="${day("2026-09-15")}"/><price currency="USD" value="10.00"/><condition value="new"/><notes value="This is for the dual layer player mats only."/></listing>`;
+    serve({ bgg: marketXml({ "1": [mats, listing("new", "24", "2026-05-01")] }) });
+    expect((await run(fetchBggMarket(["1"]))).get("1")!.new.map((l) => l.price)).toEqual([24]);
+  });
+
+  it("merges every BoardGamePrices.com item for a BGG ID and keeps US stores only", async () => {
+    serve({ bgp: Response.json({ currency: "USD", items: [
+      { external_id: "1", url: "https://bgp/item/a", prices: [{ ...store(14.99, "6.99"), country: "US" }, { ...store(24.54, "10.52"), country: "CA" }] },
+      { external_id: "1", url: "https://bgp/item/b", prices: [{ ...store(20.97, "5.00"), country: "US" }, { ...store(38.03), country: "DE" }] },
+      { external_id: "1", url: "https://bgp/item/c", prices: [] },
+    ] }) });
+    const r = (await run(fetchBgp(["1"], "https://cull.test"))).get("1")!;
+    expect(r.listings.map((l) => l.price)).toEqual([14.99, 20.97]);
+    expect(r.url).toBe("https://bgp/item/a");
+  });
+
+  it("drops listings far below the store price once there are enough store prices", async () => {
+    serve({
+      bgg: marketXml({ "1": ["9", "38", "39", "41"].map((v) => listing("new", v, "2026-05-01")).concat(["8", "20", "22", "24"].map((v) => listing("good", v, "2026-05-01"))) }),
+      bgp: bgpJson({ "1": [store(36, "5.00"), store(40, "5.00"), store(44, "5.00")] }),
+    });
+    const q = (await run(quotePrices([{ id: "1", name: "Game" }], SITE))).quotes["1"];
+    // New floor is half of $40 retail ($20): the $9 listing goes. Used floor is 30% ($12): the $8 one goes.
+    expect(q.new!.sources.find((s) => s.source === "bgg")).toMatchObject({ count: 3, median: 39 });
+    expect(q.new).toMatchObject({ median: 39.5 });
+    expect(q.used).toMatchObject({ median: 22, count: 3 });
+  });
+
+  it("keeps cheap listings when there's no store price to compare against", async () => {
+    serve({ bgg: marketXml({ "1": [listing("good", "8", "2026-05-01")] }) });
+    expect((await run(quotePrices([{ id: "1", name: "Game" }], SITE))).quotes["1"].used).toMatchObject({ median: 8 });
   });
 });
