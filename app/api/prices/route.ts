@@ -1,7 +1,7 @@
 import {getUser,sameOrigin} from '../../auth';
 import {getDb} from '@/db';
 import {BggError} from '@/lib/bgg';
-import {QUOTE_VERSION,quotePrices,type PriceQuote} from '@/lib/prices';
+import {QUOTE_VERSION,missesSources,quotePrices,type PriceQuote} from '@/lib/prices';
 export const dynamic='force-dynamic';
 const json=(v:unknown,status=200)=>Response.json(v,{status,headers:{'Cache-Control':'no-store'}});
 const STALE_MS=14*24*3600*1000;
@@ -20,10 +20,11 @@ export async function POST(request:Request){
   const rows=(await db.query<{game_id:string;quote:PriceQuote;checked:string}>('SELECT game_id,quote,checked FROM prices WHERE game_id=ANY($1)',[ids])).rows;
   // Quotes saved in an older format are treated as missing.
   const current=rows.filter(r=>r.quote?.v===QUOTE_VERSION);
-  const prices:Record<string,PriceQuote>=Object.fromEntries(current.map(r=>[r.game_id,r.quote]));
+  // Flag quotes made before a now-available source was set up, so the page rechecks them.
+  const prices:Record<string,PriceQuote>=Object.fromEntries(current.map(r=>[r.game_id,missesSources(r.quote)?{...r.quote,due:true}:r.quote]));
   let sources:string[]=[],warnings:string[]=[];
   if(mode!=='cached'){
-   const fresh=new Set(current.filter(r=>Date.now()-Date.parse(r.checked)<STALE_MS).map(r=>r.game_id));
+   const fresh=new Set(current.filter(r=>Date.now()-Date.parse(r.checked)<STALE_MS&&!missesSources(r.quote)).map(r=>r.game_id));
    const todo=mode==='refresh'?games:games.filter(g=>!fresh.has(g.id));
    if(todo.length){
     // BoardGamePrices.com asks callers to identify their site.

@@ -97,3 +97,5 @@
 @media(max-width:600px){.ebay-row{grid-template-columns:1fr}.ebay-sheet{padding:18px!important}}
 @media(prefers-color-scheme:dark){.ebay-message{background:#243f69;color:#d5e4ff}.ebay-source.ai{color:#c9b5ff;background:#2c2348;border-color:#47386f}.ebay-source.template{color:#c3cede;background:#263449;border-color:#3b4c66}}
 .price-line.linked{cursor:pointer}.price-credit{margin:0;padding:8px 22px;font-size:.8125rem;color:var(--muted-foreground);border-bottom:1px solid var(--border);background:var(--card)}.price-credit a{font-weight:600}
+.price-progress{display:flex;flex-direction:column;gap:8px;margin:0 0 16px;padding:12px 16px;border:1px solid var(--border);border-radius:10px;background:var(--card);font-size:.875rem;color:var(--muted-foreground);font-variant-numeric:tabular-nums}.price-progress [data-slot=progress]{height:8px}.price-progress [data-slot=progress-indicator]{background:#2f6b4f;transition:transform .4s ease}
+@media(prefers-color-scheme:dark){.price-progress [data-slot=progress-indicator]{background:#95dcb3}}

@@ -32,7 +32,7 @@ import seed from "@/lib/collection.json";
 import { apiRequest, createTestDb, game } from "./helpers";
 
 const quoteFor = (id: string, checkedAt = new Date().toISOString()): PriceQuote => ({
-  v: 2, checkedAt, new: null,
+  v: 2, checkedAt, new: null, sources: ["bgg", "bgp"],
   used: { median: Number(id) * 10, low: 1, high: 99, count: 3, sources: [{ source: "bgg", median: Number(id) * 10, low: 1, high: 99, count: 3 }] },
 });
 const quotes = (games: { id: string }[]): QuoteResult => ({ quotes: Object.fromEntries(games.map((g) => [g.id, quoteFor(g.id)])), sources: ["bgg"], warnings: [] });
@@ -230,6 +230,25 @@ describe("price lookup route", () => {
     await lookup("missing", ["1", "2"]);
     await lookup("refresh", ["1", "2"]);
     expect(asked).toEqual([["1"], ["1", "2"]]);
+  });
+
+  it("rechecks prices saved before a source was available", async () => {
+    vi.stubEnv("BGG_API_TOKEN", "token");
+    // Checked a week ago, when only BoardGamePrices.com was set up.
+    const before = { ...quoteFor("1"), sources: ["bgp"] };
+    await db.pg.query("INSERT INTO prices(game_id,quote,checked) VALUES($1,$2,$3)", ["1", JSON.stringify(before), before.checkedAt]);
+    await db.pg.query("INSERT INTO prices(game_id,quote,checked) VALUES($1,$2,$3)", ["2", JSON.stringify(quoteFor("2")), new Date().toISOString()]);
+    const cached = (await lookup("cached", ["1", "2"])).body.prices;
+    expect(cached["1"].due).toBe(true);
+    expect(cached["2"]).not.toHaveProperty("due");
+
+    const asked: string[][] = [];
+    const base = h.quote;
+    h.quote = async (games, opts) => { asked.push(games.map((g) => g.id)); return base(games, opts); };
+    const after = (await lookup("missing", ["1", "2"])).body.prices;
+    expect(asked).toEqual([["1"]]);
+    expect(after["1"]).not.toHaveProperty("due");
+    vi.unstubAllEnvs();
   });
 
   it("treats prices saved in an older format as missing", async () => {

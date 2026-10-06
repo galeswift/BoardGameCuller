@@ -14,7 +14,8 @@ export type PriceSource='bgg'|'ebay'|'bgp';
 export type SourceEstimate={source:PriceSource;median:number;low:number;high:number;count:number;since?:string;until?:string;shipping?:number;url?:string};
 export type PriceEstimate={median:number;low:number;high:number;count:number;shipping?:number;sources:SourceEstimate[]};
 export const QUOTE_VERSION=2;
-export type PriceQuote={v:typeof QUOTE_VERSION;used:PriceEstimate|null;new:PriceEstimate|null;checkedAt:string};
+/** `sources` lists the sources that answered when the quote was made; `due` is added on read when it needs rechecking. */
+export type PriceQuote={v:typeof QUOTE_VERSION;used:PriceEstimate|null;new:PriceEstimate|null;checkedAt:string;sources?:PriceSource[];due?:boolean};
 export type Listing={price:number;date?:number;shipping?:number};
 type Split={new:Listing[];used:Listing[]};
 
@@ -91,6 +92,10 @@ export async function fetchBgp(ids:string[],sitename:string):Promise<Map<string,
 
 let ebayToken:{value:string;expires:number}|null=null;
 export const ebayConfigured=()=>!!(process.env.EBAY_CLIENT_ID&&process.env.EBAY_CLIENT_SECRET);
+/** Sources this server can query right now. */
+export const availableSources=():PriceSource[]=>[...(process.env.BGG_API_TOKEN?['bgg' as const]:[]),...(ebayConfigured()?['ebay' as const]:[]),'bgp'];
+/** A quote made without a source that's available now (e.g. before a BGG token was added) should be rechecked. */
+export const missesSources=(q:PriceQuote)=>!q.sources||availableSources().some(s=>!q.sources!.includes(s));
 export function resetEbayToken(){ebayToken=null;}
 
 async function ebayAccessToken():Promise<string>{
@@ -160,7 +165,7 @@ export async function quotePrices(games:{id:string;name:string}[],{sitename,now=
   const split=market.get(g.id)??{new:[],used:[]};
   const bgg=(c:'new'|'used')=>{const all=split[c],recent=estimate(all.filter(l=>l.date==null||now-l.date<=RECENT_MS),'bgg');return recent&&recent.count>=MIN_LISTINGS?recent:estimate(all,'bgg');};
   const store=bgp.get(g.id);
-  quotes[g.id]={v:QUOTE_VERSION,checkedAt,
+  quotes[g.id]={v:QUOTE_VERSION,checkedAt,sources:[...sources].sort(),
    used:combine(bgg('used'),ebay.get(g.id)?.used??null),
    new:combine(bgg('new'),ebay.get(g.id)?.new??null,store?estimate(store.listings,'bgp',store.url):null)};
  }

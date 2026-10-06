@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { combine, estimate, fetchBgp, fetchBggMarket, quotePrices, resetEbayToken, titleMatches, type SourceEstimate } from "@/lib/prices";
+import { availableSources, combine, estimate, fetchBgp, fetchBggMarket, missesSources, quotePrices, resetEbayToken, titleMatches, type PriceQuote, type SourceEstimate } from "@/lib/prices";
 
 const NOW = Date.parse("2026-10-01T00:00:00Z");
 const SITE = { sitename: "https://cull.test", now: NOW };
@@ -130,7 +130,7 @@ describe("quotePrices", () => {
     const out = await run(quotePrices([{ id: "1", name: "Heat: Pedal to the Metal" }], SITE));
     expect(out.sources.sort()).toEqual(["bgg", "bgp", "ebay"]);
     const q = out.quotes["1"];
-    expect(q).toMatchObject({ v: 2, checkedAt: new Date(NOW).toISOString() });
+    expect(q).toMatchObject({ v: 2, checkedAt: new Date(NOW).toISOString(), sources: ["bgg", "bgp", "ebay"] });
     // Used: BGG 30 and eBay 36 → 33; only eBay knows shipping (9).
     expect(q.used).toMatchObject({ median: 33, shipping: 9, count: 6 });
     expect(q.used!.sources.map((s) => s.source)).toEqual(["bgg", "ebay"]);
@@ -173,5 +173,28 @@ describe("quotePrices", () => {
     expect(out.sources).toEqual(["bgp"]);
     expect(out.warnings[0]).toContain("BGG GeekMarket unavailable");
     expect(out.quotes["1"]).toMatchObject({ used: null, new: { median: 40 } });
+  });
+});
+
+describe("missesSources", () => {
+  const quote = (sources?: PriceQuote["sources"]): PriceQuote => ({ v: 2, used: null, new: null, checkedAt: "2026-10-01T00:00:00Z", ...(sources ? { sources } : {}) });
+  it("flags quotes made without a source that's available now", () => {
+    expect(availableSources()).toEqual(["bgg", "bgp"]);
+    expect(missesSources(quote(["bgp"]))).toBe(true);
+    expect(missesSources(quote(["bgg", "bgp"]))).toBe(false);
+    expect(missesSources(quote())).toBe(true);
+  });
+  it("follows configuration, e.g. once eBay keys are added", () => {
+    vi.stubEnv("EBAY_CLIENT_ID", "id");
+    vi.stubEnv("EBAY_CLIENT_SECRET", "secret");
+    expect(missesSources(quote(["bgg", "bgp"]))).toBe(true);
+    vi.stubEnv("BGG_API_TOKEN", "");
+    expect(availableSources()).toEqual(["ebay", "bgp"]);
+  });
+  it("records which sources answered", async () => {
+    serve({ bgp: new Response("down", { status: 503 }) });
+    const out = await run(quotePrices([{ id: "1", name: "Game" }], SITE));
+    expect(out.quotes["1"].sources).toEqual(["bgg"]);
+    expect(missesSources(out.quotes["1"])).toBe(true);
   });
 });

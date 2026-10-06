@@ -154,7 +154,7 @@ test("the cull list shows estimated used and new values", async ({ page }) => {
   await page.getByRole("tab", { name: /Cull list/ }).click();
 
   await page.getByRole("button", { name: "Check prices" }).click();
-  await expect(page.getByText("Prices updated from BGG GeekMarket, BoardGamePrices.com")).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText("Prices updated for 1 game from BGG GeekMarket, BoardGamePrices.com")).toBeVisible({ timeout: 30_000 });
   const row = page.locator("article", { hasText: "Test Tiles" });
   await expect(row.getByRole("button", { name: /^Used value \$25\./ })).toBeVisible();
   // New: the three in-stock store prices outweigh a single GeekMarket listing.
@@ -203,4 +203,21 @@ test("selected cull games become an eBay drafts upload file", async ({ page }) =
   expect(lines[2]).toMatch(/^Draft,BGG-900002,180349,Test Tiles Board Game - Tile Co\.,,27\.00,1,,3000,"?<h2>Test Tiles<\/h2>/);
   expect(lines[2]).toContain("<p>All tiles present.</p>");
   await expect(panel.getByText("Upload it in eBay Seller Hub")).toBeVisible();
+});
+
+test("checking prices shows progress batch by batch", async ({ page }) => {
+  await signIn(page);
+  // Keep all but 12 of the bundled collection: two batches of price lookups.
+  await page.locator("#target").fill(String(seedStandalone - 12));
+  await page.getByRole("tab", { name: /Cull list/ }).click();
+  await page.getByRole("button", { name: /(Check|Refresh) prices/ }).click();
+
+  const progress = page.locator(".price-progress");
+  await expect(progress).toContainText("Checking prices… 0 of 12 games");
+  await expect(progress.getByRole("progressbar", { name: "Price check progress" })).toBeVisible();
+  await expect(progress).toContainText("Checking prices… 10 of 12 games");
+  await expect(page.getByRole("button", { name: "Checking 10/12…" })).toBeDisabled();
+  await expect(page.getByText(/^Prices updated for 12 games from /)).toBeVisible({ timeout: 30_000 });
+  await expect(progress).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Refresh prices" })).toBeEnabled();
 });

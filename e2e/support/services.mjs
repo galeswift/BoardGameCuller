@@ -53,6 +53,8 @@ createServer((req, res) => {
       return send(200, "<errors><error><message>Invalid username specified</message></error></errors>");
     return send(200, url.searchParams.get("subtype") === "boardgameexpansion" ? EXPANSIONS : STANDALONE);
   }
+  // Price lookups are slowed down a little so the progress bar can be observed.
+  if (url.pathname === "/xmlapi2/thing" && url.searchParams.has("marketplace")) return setTimeout(() => send(200, THINGS), 300);
   if (url.pathname === "/xmlapi2/thing") return send(200, THINGS);
   send(404);
 }).listen(BGG_PORT, "127.0.0.1", () => console.log(`e2e services ready (db :${DB_PORT}, bgg :${BGG_PORT})`));
