@@ -28,7 +28,9 @@ const eslintConfig = defineConfig([
   {
     // House style: opening braces on their own line. Prettier handles the rest
     // (see `pnpm format`); only files already converted are checked.
-    files: FORMATTED,
+    // ESLint flat config takes positive globs here; exclusions go in `ignores`.
+    files: FORMATTED.filter((p) => !p.startsWith("!")),
+    ignores: FORMATTED.filter((p) => p.startsWith("!")).map((p) => p.slice(1)),
     plugins: { "@stylistic": stylistic },
     rules: {
       "@stylistic/brace-style": ["error", "allman", { allowSingleLine: true }],

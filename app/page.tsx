@@ -1,2 +1,5 @@
 import CollectionApp from './collection-app';
-export default function Home(){return <CollectionApp/>;}
+export default function Home()
+{
+    return <CollectionApp />;
+}
