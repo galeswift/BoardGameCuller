@@ -15,7 +15,8 @@ import type {PriceQuote} from '@/lib/prices';
 type Draft={title:string;price:string;condition:Condition;description:string;notes:string;source:ListingCopy['source'];year?:string};
 type Props={open:boolean;onOpenChange:(open:boolean)=>void;cull:Scored[];all:Scored[];prices:Record<string,PriceQuote>;profile:string|null};
 
-const BATCH=5;
+// Each game can take ~10s of paced BGG requests for reviews, so batches stay small.
+const BATCH=3;
 const range=(a:number|null,b:number|null)=>a&&b?(a===b?`${a}`:`${a}–${b}`):null;
 
 /** Games from your collection that play alike: the app's own overlap groups. */

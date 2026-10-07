@@ -19,6 +19,11 @@ CREATE TABLE IF NOT EXISTS prices (
   game_id text PRIMARY KEY,
   quote jsonb NOT NULL,
   checked text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS bgg_reviews (
+  game_id text PRIMARY KEY,
+  reviews jsonb NOT NULL,
+  fetched text NOT NULL
 );`;
 
 // Survive Next dev hot reloads without opening a new pool each time.

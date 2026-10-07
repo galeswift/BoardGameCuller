@@ -10,7 +10,11 @@ export const REQUEST_GAP_MS=2000;
 
 export class BggError extends Error{}
 
-const parser=new XMLParser({ignoreAttributes:false,attributeNamePrefix:'',parseTagValue:false,isArray:(name,_path,_leaf,isAttribute)=>!isAttribute&&['item','link','name','result','poll-summary','error','listing','comment','rank'].includes(name)});
+// Repeating elements always parse as arrays, even when there's only one. Forum
+// lists are matched by path, since <forum> and <thread> are also root elements.
+const LISTS=['item','link','name','result','poll-summary','error','listing','comment','rank'];
+const LIST_PATHS=['forums.forum','forum.threads.thread','thread.articles.article'];
+const parser=new XMLParser({ignoreAttributes:false,attributeNamePrefix:'',parseTagValue:false,isArray:(name,path,_leaf,isAttribute)=>!isAttribute&&(LISTS.includes(name)||LIST_PATHS.includes(String(path)))});
 export const sleep=(ms:number)=>new Promise(r=>setTimeout(r,ms));
 const num=(v:unknown)=>{const n=Number(v);return Number.isFinite(n)&&n>0?n:null;};
 const text=(v:unknown):string=>typeof v==='object'&&v!==null?String((v as Record<string,unknown>)['#text']??''):String(v??'');

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { aiCopy, decodeEntities, fetchBggDetails, templateCopy, writeListings, type ListingFacts } from "@/lib/listing";
+import { aiCopy, aiPrompt, decodeEntities, fetchBggDetails, fetchReviews, looksEnglish, postText, templateCopy, writeListings, type ListingFacts } from "@/lib/listing";
 
 const facts = (extra: Partial<ListingFacts> = {}): ListingFacts => ({
   id: "1", name: "Heat", publisher: "Days of Wonder", minPlayers: 1, maxPlayers: 6, bestPlayers: "4,5", minutes: 60,
@@ -41,7 +41,7 @@ describe("decodeEntities", () => {
 describe("fetchBggDetails", () => {
   it("parses year, rank, description, links and useful comments", async () => {
     const d = (await run(fetchBggDetails(["1"]))).get("1")!;
-    expect(fetchMock.mock.calls[0][0]).toContain("thing?id=1&comments=1&pagesize=25");
+    expect(fetchMock.mock.calls[0][0]).toContain("thing?id=1&comments=1&pagesize=100");
     expect(d).toMatchObject({ year: "2022", categories: ["Racing"], mechanics: ["Hand Management"] });
     expect(d.description).toContain("Race your car around the track.\n\nManage your heat — or spin out!");
     expect(d.comments).toEqual([
@@ -147,5 +147,110 @@ describe("writeListings", () => {
     const out = await run(writeListings([facts()]));
     expect(out.copies["1"].source).toBe("template");
     expect(out.warning).toContain("Couldn’t reach BoardGameGeek");
+  });
+});
+
+const FORUMS = `<forums type="thing" id="1"><forum id="77" title="Reviews" numthreads="4" numposts="9"/><forum id="78" title="General" numthreads="50" numposts="300"/></forums>`;
+const ENGLISH_REVIEW = "This is a tense racing game and I love how the heat cards make every corner a gamble. ".repeat(6);
+const THREADS = `<forum id="77" title="Reviews"><threads>
+  <thread id="501" subject="A great family racer" numarticles="3"/>
+  <thread id="502" subject="Video review" numarticles="1"/>
+  <thread id="503" subject="Rezension (Deutsch)" numarticles="1"/>
+  <thread id="504" subject="Solo &amp;amp; two-player thoughts" numarticles="2"/>
+</threads></forum>`;
+const article = (body: string) => `<thread id="x"><articles><article id="1" username="someone"><subject>s</subject><body>${body}</body></article></articles></thread>`;
+const BODIES: Record<string, string> = {
+  "501": `&lt;b&gt;Verdict&lt;/b&gt;&lt;br/&gt;${ENGLISH_REVIEW}`,
+  "502": "Watch it here: https://youtube.com/xyz",
+  "503": "Dieses Spiel ist ein spannendes Rennspiel und die Hitzekarten machen jede Kurve zu einem Wagnis. ".repeat(6),
+  "504": ENGLISH_REVIEW,
+};
+function serveForums() {
+  fetchMock.mockImplementation(async (url) => {
+    if (url.includes("forumlist")) return new Response(FORUMS);
+    if (url.includes("forum?id=77")) return new Response(THREADS);
+    const thread = url.match(/thread\?id=(\d+)/)?.[1];
+    if (thread) return new Response(article(BODIES[thread]));
+    if (url.includes("openai")) return openAi('{"intro":"AI intro.","appeal":"AI appeal."}');
+    return new Response(THING);
+  });
+}
+
+describe("postText and looksEnglish", () => {
+  it("turns an encoded forum post into plain text", () => {
+    expect(postText("&lt;b&gt;Verdict&lt;/b&gt;&lt;br/&gt;Fun &amp;amp; fast&lt;br/&gt;&lt;br/&gt;Recommended")).toBe("Verdict\nFun & fast\n\nRecommended");
+  });
+  it("tells English reviews apart from other languages and link-only posts", () => {
+    expect(looksEnglish(ENGLISH_REVIEW)).toBe(true);
+    expect(looksEnglish(BODIES["503"])).toBe(false);
+    expect(looksEnglish("Great game")).toBe(false);
+  });
+});
+
+describe("fetchReviews", () => {
+  it("takes the opening post of recent English threads in the Reviews forum", async () => {
+    serveForums();
+    const reviews = await run(fetchReviews("1"));
+    expect(reviews.map((r) => r.subject)).toEqual(["A great family racer", "Solo & two-player thoughts"]);
+    expect(reviews[0].text.startsWith("Verdict\nThis is a tense racing game")).toBe(true);
+    expect(reviews[0].text.length).toBeLessThanOrEqual(1500);
+    const urls = fetchMock.mock.calls.map(([u]) => u);
+    expect(urls[0]).toContain("forumlist?id=1&type=thing");
+    expect(urls[1]).toContain("forum?id=77");
+    expect(urls.filter((u) => u.includes("thread?id=")).every((u) => u.endsWith("&count=1"))).toBe(true);
+  });
+
+  it("stops at three reviews", async () => {
+    BODIES["502"] = ENGLISH_REVIEW;
+    BODIES["503"] = ENGLISH_REVIEW;
+    serveForums();
+    expect(await run(fetchReviews("1"))).toHaveLength(3);
+    expect(fetchMock.mock.calls.filter(([u]) => u.includes("thread?id=504"))).toHaveLength(0);
+    BODIES["502"] = "Watch it here: https://youtube.com/xyz";
+    BODIES["503"] = "Dieses Spiel ist ein spannendes Rennspiel. ".repeat(10);
+  });
+
+  it("returns nothing when the game has no reviews", async () => {
+    fetchMock.mockResolvedValue(new Response(`<forums><forum id="9" title="Reviews" numthreads="0"/></forums>`));
+    expect(await run(fetchReviews("1"))).toEqual([]);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("aiPrompt", () => {
+  it("includes reviews and the most substantive liked comments", () => {
+    const d = { description: "", categories: [], mechanics: [], reviews: [{ subject: "Great racer", text: "Loved the tension of every corner." }],
+      comments: [{ rating: 8, text: "Short but sweet, plays fast." }, { rating: 9, text: "Long comment with a lot of detail about why the heat system makes every lap feel tense and exciting." }, { rating: 7, text: "Solid fun." }] };
+    const prompt = aiPrompt(facts(), d);
+    expect(prompt).toContain("Player reviews (summarise what reviewers enjoy, don't quote):\n### Great racer\nLoved the tension");
+    expect(prompt.indexOf("Long comment")).toBeLessThan(prompt.indexOf("Short but sweet"));
+  });
+});
+
+describe("writeListings with reviews", () => {
+  it("fetches reviews for the AI and returns them for caching", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    serveForums();
+    const out = await run(writeListings([facts()]));
+    expect(out.fetchedReviews["1"].map((r) => r.subject)).toEqual(["A great family racer", "Solo & two-player thoughts"]);
+    const prompt = JSON.parse(String(fetchMock.mock.calls.find(([u]) => u.includes("openai"))![1]!.body)).messages[1].content;
+    expect(prompt).toContain("### A great family racer");
+    expect(JSON.parse(String(fetchMock.mock.calls.find(([u]) => u.includes("openai"))![1]!.body)).messages[0].content).toContain("leave out their complaints");
+  });
+
+  it("uses cached reviews instead of fetching them again", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    serveForums();
+    const out = await run(writeListings([facts()], { cachedReviews: new Map([["1", [{ subject: "Cached review", text: "From the cache." }]]]) }));
+    expect(out.fetchedReviews).toEqual({});
+    expect(fetchMock.mock.calls.some(([u]) => u.includes("forum"))).toBe(false);
+    expect(JSON.parse(String(fetchMock.mock.calls.find(([u]) => u.includes("openai"))![1]!.body)).messages[1].content).toContain("### Cached review");
+  });
+
+  it("skips reviews when there's no AI to use them", async () => {
+    serveForums();
+    const out = await run(writeListings([facts()]));
+    expect(out.fetchedReviews).toEqual({});
+    expect(fetchMock.mock.calls.some(([u]) => u.includes("forum"))).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Game } from "@/lib/model";
 import type { PriceQuote, QuoteResult } from "@/lib/prices";
+import type { ListingFacts, ListingResult, Review } from "@/lib/listing";
 
 const h = vi.hoisted(() => ({
   signedIn: true,
@@ -8,6 +9,11 @@ const h = vi.hoisted(() => ({
   pool: null as unknown,
   fetchBgg: null as unknown as (username: string, previous: Game[]) => Promise<Game[]>,
   quote: null as unknown as (games: { id: string; name: string }[], opts: { sitename: string }) => Promise<QuoteResult>,
+  write: null as unknown as (games: ListingFacts[], opts: { cachedReviews?: Map<string, Review[]> }) => Promise<ListingResult>,
+}));
+vi.mock("@/lib/listing", async (original) => ({
+  ...(await original<object>()),
+  writeListings: (g: ListingFacts[], opts: { cachedReviews?: Map<string, Review[]> }) => h.write(g, opts),
 }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({ get: () => (h.signedIn ? { value: h.token } : undefined) }),
@@ -26,6 +32,7 @@ import { sessionToken } from "@/app/auth";
 import { GET, POST } from "@/app/api/state/route";
 import { POST as prices } from "@/app/api/prices/route";
 import { POST as importBgg } from "@/app/api/bgg/route";
+import { POST as describe_ } from "@/app/api/ebay/descriptions/route";
 import { BggError } from "@/lib/bgg";
 import { defaults } from "@/lib/model";
 import seed from "@/lib/collection.json";
@@ -54,7 +61,7 @@ let db: Awaited<ReturnType<typeof createTestDb>>;
 beforeAll(async () => { db = await createTestDb(); h.pool = db.pool; });
 
 beforeEach(async () => {
-  await db.pg.exec("TRUNCATE collection_state, preferences, prices");
+  await db.pg.exec("TRUNCATE collection_state, preferences, prices, bgg_reviews");
   h.signedIn = true;
   h.token = sessionToken()!;
   h.fetchBgg = async () => [game("1"), game("2")];
@@ -272,5 +279,43 @@ describe("price lookup route", () => {
     expect(res.status).toBe(502);
     expect(res.body.error).toContain("No price source could be reached");
     expect((await db.pg.query("SELECT count(*)::int AS n FROM prices")).rows[0]).toEqual({ n: 0 });
+  });
+});
+
+describe("eBay description route", () => {
+  const facts = (id: string): ListingFacts => ({ id, name: `Game ${id}`, publisher: "", minPlayers: 2, maxPlayers: 4, minutes: 60, complexity: 2, similar: [], condition: "Used" });
+  const write = async (ids: string[]) => {
+    const res = await describe_(apiRequest("/api/ebay/descriptions", { method: "POST", body: { games: ids.map(facts) } }));
+    return { status: res.status, body: await res.json() };
+  };
+
+  it("caches fetched reviews and passes them back on the next write", async () => {
+    const seen: string[][] = [];
+    h.write = async (games, opts) => {
+      seen.push([...(opts.cachedReviews?.keys() ?? [])]);
+      const fetched = Object.fromEntries(games.filter((g) => !opts.cachedReviews?.has(g.id)).map((g) => [g.id, [{ subject: `Review of ${g.name}`, text: "Loved it." }]]));
+      return { copies: {}, ai: true, fetchedReviews: fetched };
+    };
+    expect((await write(["1"])).body).toEqual({ copies: {}, ai: true });
+    await write(["1", "2"]);
+    expect(seen).toEqual([[], ["1"]]);
+    const rows = (await db.pg.query<{ game_id: string }>("SELECT game_id FROM bgg_reviews ORDER BY game_id")).rows;
+    expect(rows.map((r) => r.game_id)).toEqual(["1", "2"]);
+  });
+
+  it("ignores cached reviews older than a month", async () => {
+    const old = new Date(Date.now() - 40 * 24 * 3600 * 1000).toISOString();
+    await db.pg.query("INSERT INTO bgg_reviews(game_id,reviews,fetched) VALUES($1,$2,$3)", ["1", JSON.stringify([{ subject: "Old", text: "x" }]), old]);
+    let cached: string[] = [];
+    h.write = async (_games, opts) => { cached = [...(opts.cachedReviews?.keys() ?? [])]; return { copies: {}, ai: true, fetchedReviews: {} }; };
+    await write(["1"]);
+    expect(cached).toEqual([]);
+  });
+
+  it("validates the request", async () => {
+    h.write = async () => ({ copies: {}, ai: false, fetchedReviews: {} });
+    expect((await write([])).status).toBe(400);
+    h.signedIn = false;
+    expect((await write(["1"])).status).toBe(401);
   });
 });
