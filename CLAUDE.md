@@ -75,7 +75,10 @@ fake BoardGamePrices and PGlite over the wire, see `e2e/support/services.mjs`).
 - **Noble Knight export:** fills the bundled `public/nkg-trade-template.xlsx`; per-game condition,
   default Used.
 - **UI:** "All Games" tab (renamed from Preferences) with sortable headers; reason chips with
-  per-kind colours; Fraunces/Figtree fonts.
+  per-kind colours; Fraunces/Figtree fonts. Each row shows the game's BGG thumbnail faded in
+  behind the title (`RowArt`, `.row-art`); thumbnails are stored at sync and only BGG image-CDN
+  URLs pass `bggImageUrl` (they go into CSS `url()`). E2E aborts requests to the CDN.
+- **Mean interaction** deduction defaults to 0 (off); users can raise it in Scoring.
 - **README:** the user's own blurb (with its parentheticals and small typos) is intentional —
   don't "fix" it.
 - Moving the UI to Vite + React was discussed and tabled.

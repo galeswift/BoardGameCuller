@@ -56,6 +56,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import {
     CONDITIONS,
     DEFAULT_CONDITION,
+    bggImageUrl,
     calculate,
     collectionFromCSV,
     cullExplanation,
@@ -118,6 +119,19 @@ const factorIcons: Record<FactorKind, LucideIcon> = {
 };
 
 // One chip per scoring factor; hover or focus for the details.
+/** The game's box art, faded in behind the start of its row like a small hero image. */
+function RowArt({ url }: { url?: string })
+{
+    const safeUrl = bggImageUrl(url);
+
+    if (!safeUrl)
+    {
+        return null;
+    }
+
+    return <span className="row-art" style={{ backgroundImage: `url("${safeUrl}")` }} aria-hidden="true" />;
+}
+
 function FactorChips({ factors, onOpen }: { factors: Factor[]; onOpen: (id: string) => void })
 {
     return (
@@ -1374,8 +1388,8 @@ export default function CollectionApp()
                                 <div>
                                     <h2>Keep score</h2>
                                     <p>
-                                        Ratings lead the decision. Overlap comes next, then mean interaction. Box size adds a small
-                                        shelf-space deduction.
+                                        Ratings lead the decision and overlap comes next. Box size adds a small shelf-space deduction. Mean
+                                        interaction is off by default: raise its deduction to count it.
                                     </p>
                                     <div className="settings-grid">
                                         {(
@@ -1725,6 +1739,7 @@ export default function CollectionApp()
 
                                                 return (
                                                     <article className="game-row expansion-row" key={game.id}>
+                                                        <RowArt url={game.thumbnail} />
                                                         <div className="game-info">
                                                             <div className="title-line">
                                                                 <a
@@ -1859,6 +1874,7 @@ export default function CollectionApp()
                                                         className={`game-row ${game.preference.mustKeep ? 'locked' : ''}`}
                                                         key={game.id}
                                                     >
+                                                        <RowArt url={game.thumbnail} />
                                                         <span className="row-rank">
                                                             {view === 'preferences' ? (
                                                                 game.preference.reviewed ? (

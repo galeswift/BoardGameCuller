@@ -67,7 +67,7 @@ describe('keepFactors', () =>
 
     it('describes rating, threshold, mean and box penalties with short badges', () =>
     {
-        const { factors } = setup([game('1', { rating: 9 }), game('2', { rating: 6, mean: 3 })], { '2': { box: 2 } });
+        const { factors } = setup([game('1', { rating: 9 }), game('2', { rating: 6, mean: 3 })], { '2': { box: 2 } }, { meanWeight: 10 });
         const byKind = Object.fromEntries(factors('2').map(factor => [factor.kind, factor]));
 
         expect(byKind.rating).toMatchObject({ badge: '6.0', title: 'Rating 6.0/10' });
@@ -75,6 +75,13 @@ describe('keepFactors', () =>
         expect(byKind.lowRating).toMatchObject({ badge: '−15.0', impact: -15 });
         expect(byKind.mean).toMatchObject({ title: 'Mean interaction 3/5', badge: '−6.0' });
         expect(byKind.box).toMatchObject({ title: 'Large box', badge: '−2.0' });
+    });
+
+    it('ignores mean interaction unless its deduction is raised', () =>
+    {
+        const { factors } = setup([game('1', { rating: 9 }), game('2', { rating: 6, mean: 5 })]);
+
+        expect(factors('2').map(factor => factor.kind)).not.toContain('mean');
     });
 
     it('uses your own rating when set, and shows thumbs up as a positive', () =>

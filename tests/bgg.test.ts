@@ -16,6 +16,7 @@ const STANDALONE = collectionXml(
 const EXPANSIONS = collectionXml(collectionItem('300', 'Spirit Island: Branch & Claw', 'boardgameexpansion', 'N/A', '8.6'));
 const THINGS = `<?xml version="1.0" encoding="utf-8"?><items>
  <item type="boardgame" id="100">
+  <thumbnail>https://cf.geekdo-images.com/abc__small/img/x=/fit-in/200x150/filters:strip_icc()/pic1.jpg</thumbnail>
   <minplayers value="1"/><maxplayers value="4"/><playingtime value="120"/>
   <poll-summary name="suggested_numplayers"><result name="bestwith" value="Best with 2–3 players"/><result name="recommmendedwith" value="Recommended with 1–4 players"/></poll-summary>
   <link type="boardgamecategory" id="1" value="Card Game"/><link type="boardgamecategory" id="2" value="Fantasy"/>
@@ -112,6 +113,7 @@ describe('fetchBggCollection', () =>
             mechanics: ['Cooperative Game'],
             // Families about how a game was sold, not how it plays, are dropped.
             families: ['Mechanism: Campaign Games'],
+            thumbnail: 'https://cf.geekdo-images.com/abc__small/img/x=/fit-in/200x150/filters:strip_icc()/pic1.jpg',
         });
         expect(hanabi).toMatchObject({
             publisher: '',

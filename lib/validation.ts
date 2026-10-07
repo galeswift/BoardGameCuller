@@ -1,4 +1,4 @@
-import { CONDITIONS, type Preference, type Settings, type Game } from './model';
+import { CONDITIONS, bggImageUrl, type Preference, type Settings, type Game } from './model';
 const bounded = (value: unknown, min: number, max: number, nullable = false) =>
 {
     if (nullable && value === null)
@@ -193,6 +193,11 @@ export function validateGames(games: unknown): Game[]
             {
                 throw new Error('Invalid game tags.');
             }
+        }
+
+        if (game.thumbnail != null && !bggImageUrl(game.thumbnail))
+        {
+            throw new Error('Invalid game thumbnail.');
         }
 
         return game as Game;

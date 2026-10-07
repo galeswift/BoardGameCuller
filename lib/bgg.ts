@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 import { decodeEntities } from './text';
-import type { Game } from './model';
+import { bggImageUrl, type Game } from './model';
 
 // BGG XML API2. Since 2025 every request needs a registered application token:
 // https://boardgamegeek.com/applications
@@ -178,6 +178,7 @@ function details(item: Node)
         categories: values('boardgamecategory'),
         mechanics,
         families: values('boardgamefamily').filter(family => !NON_GAMEPLAY_FAMILY.test(family)),
+        thumbnail: bggImageUrl(text(item.thumbnail).trim()) ?? undefined,
     };
 }
 
@@ -285,6 +286,7 @@ export async function fetchBggCollection(username: string, previous: Game[]): Pr
             categories: thing?.categories ?? prior?.categories,
             mechanics: thing?.mechanics ?? prior?.mechanics,
             families: thing?.families ?? prior?.families,
+            thumbnail: thing?.thumbnail ?? prior?.thumbnail,
         };
     });
 }

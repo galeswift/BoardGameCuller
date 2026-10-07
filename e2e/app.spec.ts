@@ -22,6 +22,12 @@ async function openProfile(page: Page, name: string)
     await page.getByRole('button', { name: 'Open' }).click();
 }
 
+// Box art comes from BGG's CDN; tests never reach out to it.
+test.beforeEach(async ({ page }) =>
+{
+    await page.route('https://cf.geekdo-images.com/**', route => route.abort());
+});
+
 const uniqueProfile = (prefix: string) => `${prefix}-${Date.now().toString(36)}`;
 
 test('the collection is behind the password', async ({ page }) =>
@@ -52,6 +58,8 @@ test('the demo shows the sample collection without saving anything', async ({ pa
     await expect(page.getByRole('combobox', { name: 'Whose collection' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Sync from BGG' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Import', exact: true })).toHaveCount(0);
+    // Each row shows its box art faded in behind the title.
+    await expect(page.locator('.game-row .row-art').first()).toHaveAttribute('style', /cf\.geekdo-images\.com/);
 
     // Changes work on the page but stay there.
     await page.locator('#target').fill(String(seedStandalone - 5));

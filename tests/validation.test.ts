@@ -66,4 +66,13 @@ describe('validateGames', () =>
         expect(() => validateGames([game('1', { mechanics: 'Dice Rolling' as unknown as string[] })])).toThrow('Invalid game tags.');
         expect(() => validateGames([game('1', { families: [7 as unknown as string] })])).toThrow('Invalid game tags.');
     });
+
+    it('accepts only BGG image-CDN thumbnails that are safe inside CSS', () =>
+    {
+        const thumbnail = 'https://cf.geekdo-images.com/abc__small/img/x=/fit-in/200x150/filters:strip_icc()/pic1.jpg';
+
+        expect(validateGames([game('1', { thumbnail })])[0].thumbnail).toBe(thumbnail);
+        expect(() => validateGames([game('1', { thumbnail: 'https://evil.example/x.jpg' })])).toThrow('Invalid game thumbnail.');
+        expect(() => validateGames([game('1', { thumbnail: 'https://cf.geekdo-images.com/a")' })])).toThrow('Invalid game thumbnail.');
+    });
 });

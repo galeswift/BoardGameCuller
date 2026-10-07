@@ -21,7 +21,19 @@ export type Game = {
     categories?: string[];
     mechanics?: string[];
     families?: string[];
+    // Small box-art image from BGG's image CDN.
+    thumbnail?: string;
 };
+
+/**
+ * The URL when it's a BGG image-CDN address that's safe to drop into CSS `url("…")`, else null.
+ * BGG thumbnail paths contain parentheses (`filters:strip_icc()`), so those are allowed; quotes,
+ * backslashes and whitespace are not.
+ */
+export function bggImageUrl(url: unknown): string | null
+{
+    return typeof url === 'string' && url.length <= 500 && /^https:\/\/cf\.geekdo-images\.com\/[\w\-./%=:,()~+]+$/.test(url) ? url : null;
+}
 
 export type Preference = {
     thumb?: number;
@@ -65,7 +77,8 @@ export const defaults: Settings = {
     lowThreshold: 7,
     lowPenalty: 15,
     overlapWeight: 20,
-    meanWeight: 10,
+    // Off by default: how much players attack each other is a taste, not a reason to cull.
+    meanWeight: 0,
     boxWeight: 3,
     thumbWeight: 30,
     preserve: true,
