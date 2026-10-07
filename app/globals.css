@@ -109,3 +109,7 @@
 @media(max-width:1100px){.all-columns{grid-template-columns:20px minmax(200px,1fr) 60px 124px 140px;gap:12px}.all-columns span:last-child{display:none}}
 @media(max-width:900px){.all-columns{display:none}}
 @media(prefers-color-scheme:dark){.all-columns{background:#1b2a42;color:#9fb2cf}}
+/* Landing page: demo for visitors, sign-in for the owner */
+.landing{max-width:520px;padding-top:56px;display:flex;flex-direction:column;gap:18px}.landing-card{margin:0;display:flex;flex-direction:column;gap:12px;align-items:flex-start}.landing-card h1{font-family:var(--font-fraunces),Georgia,serif;font-size:2rem;font-weight:650;margin:0}.landing-card h2{display:flex;align-items:center;gap:8px;font-size:1.1rem}.landing-card p{margin:0}.landing-card input{width:100%}.landing-error{color:var(--destructive)}
+.demo-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:16px 0 0;padding:10px 16px;border-radius:10px;background:#fff6dc;border:1px solid #f1d995;color:#6b4e00;font-size:.875rem}.demo-banner a{font-weight:600;white-space:nowrap}
+@media(prefers-color-scheme:dark){.demo-banner{background:#3a3018;border-color:#5c4a1f;color:#f5d17a}}

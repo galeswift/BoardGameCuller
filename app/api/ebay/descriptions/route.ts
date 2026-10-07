@@ -1,6 +1,6 @@
-import { getUser, sameOrigin } from '../../../auth';
+import { getViewer, sameOrigin } from '../../../auth';
 import { getDb } from '@/db';
-import { writeListings, type ListingFacts, type Review } from '@/lib/listing';
+import { templateCopy, writeListings, type ListingFacts, type Review } from '@/lib/listing';
 import { CONDITIONS } from '@/lib/model';
 
 export const dynamic = 'force-dynamic';
@@ -34,9 +34,9 @@ function valid(input: unknown): input is ListingFacts
 // Writes listing copy for up to 10 games per request; the page sends batches.
 export async function POST(request: Request)
 {
-    const user = await getUser();
+    const viewer = await getViewer();
 
-    if (!user)
+    if (!viewer)
     {
         return json({ error: 'Sign in to write listings.' }, 401);
     }
@@ -59,6 +59,14 @@ export async function POST(request: Request)
     catch
     {
         return json({ error: 'Invalid request.' }, 400);
+    }
+
+    // The demo writes template copy only: no BGG or OpenAI calls, so it costs nothing.
+    if (viewer.demo)
+    {
+        const copies = Object.fromEntries(games.map(facts => [facts.id, { ...templateCopy(facts), source: 'template' }]));
+
+        return json({ copies, ai: false });
     }
 
     try

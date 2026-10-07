@@ -296,12 +296,15 @@ export default function CollectionApp()
     const [removing, setRemoving] = useState(false);
     const [aiAvailable, setAiAvailable] = useState(false);
     const [groupProgress, setGroupProgress] = useState<{ done: number; total: number } | null>(null);
+    const [demo, setDemo] = useState(false);
     const queue = useRef<Operation[]>([]);
     const busy = useRef(false);
     const blocked = useRef(false);
     const stateRef = useRef(state);
     const uploadRef = useRef<HTMLInputElement>(null);
     const profileRef = useRef<string | null>(null);
+    // True in the read-only demo, where changes stay in this tab.
+    const demoRef = useRef(false);
 
     stateRef.current = state;
     const load = useCallback(async (next?: string) =>
@@ -315,6 +318,7 @@ export default function CollectionApp()
                 profile: string;
                 defaultProfile: string;
                 aiAvailable: boolean;
+                demo?: boolean;
                 profiles: string[];
                 error?: string;
             };
@@ -328,6 +332,8 @@ export default function CollectionApp()
             setProfile(data.profile);
             setMainProfile(data.defaultProfile);
             setAiAvailable(data.aiAvailable);
+            demoRef.current = !!data.demo;
+            setDemo(!!data.demo);
             setProfiles(data.profiles);
             setState({ games: data.games, preferences: data.preferences, settings: data.settings, savedAt: data.savedAt });
             setLoaded(true);
@@ -424,6 +430,12 @@ export default function CollectionApp()
     const enqueue = useCallback(
         (data: object) =>
         {
+            // The demo keeps changes in this tab only; the server wouldn't accept them anyway.
+            if (demoRef.current)
+            {
+                return Promise.resolve();
+            }
+
             const payload = { ...data, profile: profileRef.current };
             const promise = new Promise<void>((resolve, reject) => queue.current.push({ payload, resolve, reject }));
 
@@ -1062,6 +1074,31 @@ export default function CollectionApp()
         );
     }
 
+    function saveStatus()
+    {
+        if (demo)
+        {
+            return 'Demo: changes aren’t saved';
+        }
+
+        if (saveError)
+        {
+            return 'Changes not saved';
+        }
+
+        if (pending)
+        {
+            return `Saving ${pending} ${pending === 1 ? 'change' : 'changes'}…`;
+        }
+
+        if (state?.savedAt)
+        {
+            return 'All changes saved';
+        }
+
+        return loaded ? 'Collection loaded' : 'Loading…';
+    }
+
     return (
         <TooltipProvider delayDuration={150}>
             <div className="workspace">
@@ -1072,11 +1109,11 @@ export default function CollectionApp()
                         </span>
                         <div>
                             <h1>Collection Cull</h1>
-                            <span>{profile ? `${profile}’s collection` : 'Loading…'}</span>
+                            <span>{demo ? 'Sample collection' : profile ? `${profile}’s collection` : 'Loading…'}</span>
                         </div>
                     </div>
                     <div className="top-actions">
-                        {adding ? (
+                        {demo ? null : adding ? (
                             <form
                                 className="profile-form"
                                 onSubmit={event =>
@@ -1147,28 +1184,24 @@ export default function CollectionApp()
                             </AlertDialogContent>
                         </AlertDialog>
                         <span className={`save-status ${saveError ? 'failed' : ''}`} role="status">
-                            {saveError
-                                ? 'Changes not saved'
-                                : pending
-                                    ? `Saving ${pending} ${pending === 1 ? 'change' : 'changes'}…`
-                                    : state?.savedAt
-                                        ? 'All changes saved'
-                                        : loaded
-                                            ? 'Collection loaded'
-                                            : 'Loading…'}
+                            {saveStatus()}
                         </span>
-                        <Button variant="outline" onClick={() => void syncBgg()} disabled={!state || pending > 0 || syncing}>
-                            <RefreshCw className={syncing ? 'animate-spin' : ''} />
-                            {syncing ? 'Importing…' : 'Sync from BGG'}
-                        </Button>
+                        {!demo && (
+                            <Button variant="outline" onClick={() => void syncBgg()} disabled={!state || pending > 0 || syncing}>
+                                <RefreshCw className={syncing ? 'animate-spin' : ''} />
+                                {syncing ? 'Importing…' : 'Sync from BGG'}
+                            </Button>
+                        )}
                         <Button variant="outline" onClick={backup} disabled={!state}>
                             <Download />
                             Backup
                         </Button>
-                        <Button variant="outline" onClick={() => uploadRef.current?.click()} disabled={!state || pending > 0}>
-                            <Upload />
-                            Import
-                        </Button>
+                        {!demo && (
+                            <Button variant="outline" onClick={() => uploadRef.current?.click()} disabled={!state || pending > 0}>
+                                <Upload />
+                                Import
+                            </Button>
+                        )}
                         <input
                             ref={uploadRef}
                             type="file"
@@ -1186,6 +1219,15 @@ export default function CollectionApp()
                         />
                     </div>
                 </header>
+                {demo && (
+                    <div className="demo-banner" role="note">
+                        <span>
+                            You’re trying the demo with a sample collection. Change anything you like: nothing is saved, and reloading
+                            starts fresh.
+                        </span>
+                        <a href="/login">Sign in</a>
+                    </div>
+                )}
                 {loadError ? (
                     <section className="message error">
                         <h2>Couldn’t load your collection</h2>
@@ -1550,7 +1592,7 @@ export default function CollectionApp()
                                             Sell on eBay
                                         </Button>
                                     )}
-                                    {view === 'cull' && (
+                                    {view === 'cull' && !demo && (
                                         <Button
                                             variant="outline"
                                             onClick={() => void checkPrices()}
@@ -1678,8 +1720,8 @@ export default function CollectionApp()
                                                 const preference = state.preferences[game.id] || {};
                                                 const parentCull =
                                                     game.parentId &&
-                                                        !result.kept.has(game.parentId) &&
-                                                        all.some(other => other.id === game.parentId);
+                                                    !result.kept.has(game.parentId) &&
+                                                    all.some(other => other.id === game.parentId);
 
                                                 return (
                                                     <article className="game-row expansion-row" key={game.id}>
@@ -1936,6 +1978,7 @@ export default function CollectionApp()
                         all={result.ranked}
                         prices={prices}
                         profile={profile}
+                        demo={demo}
                     />
                 )}
                 <Sheet

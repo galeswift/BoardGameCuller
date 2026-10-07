@@ -6,9 +6,10 @@ vi.mock('next/headers', () => ({
     cookies: async () => ({ get: () => (mocks.cookie === undefined ? undefined : { value: mocks.cookie }) }),
 }));
 
-import { getUser, passwordMatches, sameOrigin, sessionToken } from '@/app/auth';
+import { demoToken, getUser, getViewer, passwordMatches, sameOrigin, sessionToken } from '@/app/auth';
 import { POST as login } from '@/app/api/login/route';
 import { POST as logout } from '@/app/api/logout/route';
+import { POST as startDemo } from '@/app/api/demo/route';
 
 beforeEach(() =>
 {
@@ -106,5 +107,45 @@ describe('login and logout routes', () =>
 
         expect(res.headers.get('location')).toBe('/login');
         expect(res.headers.get('set-cookie')).toContain('Max-Age=0');
+    });
+});
+
+describe('demo sessions', () =>
+{
+    it('tells the owner and demo visitors apart', async () =>
+    {
+        expect(demoToken()).not.toBe(sessionToken());
+        mocks.cookie = sessionToken()!;
+        expect(await getViewer()).toEqual({ demo: false });
+        mocks.cookie = demoToken()!;
+        expect(await getViewer()).toEqual({ demo: true });
+        mocks.cookie = 'nonsense';
+        expect(await getViewer()).toBeNull();
+    });
+
+    it('never treats a demo visitor as the owner', async () =>
+    {
+        mocks.cookie = demoToken()!;
+        expect(await getUser()).toBeNull();
+    });
+
+    it('starts a one-day demo session', async () =>
+    {
+        const res = await startDemo();
+
+        expect(res.status).toBe(303);
+        expect(res.headers.get('location')).toBe('/');
+        const cookie = res.headers.get('set-cookie')!;
+
+        expect(cookie).toContain(`cc_session=${demoToken()}`);
+        expect(cookie).toContain('HttpOnly');
+        expect(cookie).toContain('Max-Age=86400');
+    });
+
+    it('is unavailable when APP_PASSWORD is unset', async () =>
+    {
+        vi.stubEnv('APP_PASSWORD', '');
+        expect(demoToken()).toBeNull();
+        expect((await startDemo()).headers.get('location')).toBe('/login');
     });
 });

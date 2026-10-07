@@ -2,9 +2,10 @@
 
 A web app for trimming a board game collection. It scores every game you own, spots the ones that fill the same slot on your shelf, and helps you trade in or sell the ones you let go.
 
-**Live site:** https://boardgameculler-production.up.railway.app/ — this is my own instance, so it's behind a password. The screenshots below show what's inside.
+**Live site:** https://boardgameculler-production.up.railway.app/ — my collection is behind a password, but **Try the demo** on the front page opens a sample collection of about 300 games to explore. Nothing you change in the demo is saved, and it doesn't check live prices or use AI (eBay descriptions come from the built-in template).
 
-I built it to cull my own collection of around 300 games.
+(Description by me, not Claude):
+I (Claude) built it to cull my(Not Claude's) own collection of around 300 games.  I just wanted to see what the overlap was between games in my library, so I could feel ok about getting rid of games and not introducing a hole in the experiences I had.  In addition, I wanted to show relative values of the items I'm getting rid of, and added the ability to keep or influence the scoring.  I(again, Claude) added the ability to export the results into the noble knight trade-in template, or generate a spreadsheet that ebay can use (which includes some descriptions based on user comments).
 
 ![The cull list, showing why each game is a candidate](docs/screenshots/cull-list.png)
 

@@ -1,4 +1,4 @@
-import { getUser, sameOrigin } from '../../auth';
+import { getViewer, sameOrigin } from '../../auth';
 import { getDb } from '@/db';
 import { BggError } from '@/lib/bgg';
 import { QUOTE_VERSION, missesSources, quotePrices, type PriceQuote } from '@/lib/prices';
@@ -11,9 +11,9 @@ const STALE_MS = 14 * 24 * 3600 * 1000;
 // mode: 'cached' reads the cache only; 'missing' looks up absent or stale games; 'refresh' looks up all.
 export async function POST(request: Request)
 {
-    const user = await getUser();
+    const viewer = await getViewer();
 
-    if (!user)
+    if (!viewer)
     {
         return json({ error: 'Sign in to check prices.' }, 401);
     }
@@ -23,7 +23,8 @@ export async function POST(request: Request)
         return json({ error: 'Request origin does not match.' }, 403);
     }
 
-    let games: { id: string; name: string }[]; let mode: string;
+    let games: { id: string; name: string }[];
+    let mode: string;
 
     try
     {
@@ -47,6 +48,12 @@ export async function POST(request: Request)
     catch
     {
         return json({ error: 'Invalid request.' }, 400);
+    }
+
+    // The demo can read saved prices but never triggers new lookups.
+    if (viewer.demo && mode !== 'cached')
+    {
+        return json({ error: 'The demo shows saved prices only.' }, 403);
     }
 
     try

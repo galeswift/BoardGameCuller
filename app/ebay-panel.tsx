@@ -29,6 +29,7 @@ type Props = {
     all: Scored[];
     prices: Record<string, PriceQuote>;
     profile: string | null;
+    demo: boolean;
 };
 
 // Each game can take ~10s of paced BGG requests for reviews, so batches stay small.
@@ -65,13 +66,15 @@ function priceFor(quote: PriceQuote | undefined, condition: Condition)
     return estimate ? undercutPrice(estimate.median).toFixed(2) : '';
 }
 
-function priceHint(quote: PriceQuote | undefined, condition: Condition)
+function priceHint(quote: PriceQuote | undefined, condition: Condition, demo: boolean)
 {
     const estimate = marketFor(quote, condition);
 
     if (!estimate)
     {
-        return 'No market estimate yet. Use Check prices on the cull list to get a suggested price.';
+        return demo
+            ? 'No saved market estimate for this game in the demo.'
+            : 'No market estimate yet. Use Check prices on the cull list to get a suggested price.';
     }
 
     return `Suggested $${undercutPrice(estimate.median).toFixed(2)}: ${Math.round(UNDERCUT * 100)}% under the $${estimate.median.toFixed(2)} ${condition === 'New' ? 'new' : 'used'} market estimate.`;
@@ -90,7 +93,7 @@ function factsList(game: Scored, draft: Draft)
     ].filter((fact): fact is string => !!fact);
 }
 
-export function EbayPanel({ open, onOpenChange, cull, all, prices, profile }: Props)
+export function EbayPanel({ open, onOpenChange, cull, all, prices, profile, demo }: Props)
 {
     const [selected, setSelected] = useState<Set<string>>(new Set());
     const [drafts, setDrafts] = useState<Record<string, Draft>>({});
@@ -196,7 +199,14 @@ export function EbayPanel({ open, onOpenChange, cull, all, prices, profile }: Pr
             }
 
             setMessage(
-                [warning, ai ? '' : 'Descriptions use the built-in template. Set OPENAI_API_KEY on the server for AI-written copy.']
+                [
+                    warning,
+                    ai
+                        ? ''
+                        : demo
+                            ? 'The demo uses the built-in description template. The full site writes descriptions with AI.'
+                            : 'Descriptions use the built-in template. Set OPENAI_API_KEY on the server for AI-written copy.',
+                ]
                     .filter(Boolean)
                     .join(' ')
             );
@@ -371,7 +381,7 @@ export function EbayPanel({ open, onOpenChange, cull, all, prices, profile }: Pr
                                             </Select>
                                         </label>
                                     </div>
-                                    <p className="hint ebay-price-hint">{priceHint(prices[game.id], draft.condition)}</p>
+                                    <p className="hint ebay-price-hint">{priceHint(prices[game.id], draft.condition, demo)}</p>
                                     <label>
                                         Description
                                         <Textarea

@@ -26,9 +26,10 @@ const uniqueProfile = (prefix: string) => `${prefix}-${Date.now().toString(36)}`
 
 test('the collection is behind the password', async ({ page }) =>
 {
+    // Signed-out visitors land on the front page.
     await page.goto('/');
-    await expect(page.getByRole('heading', { name: 'Couldn’t load your collection' })).toBeVisible();
-    await page.getByRole('link', { name: 'Sign in' }).click();
+    await expect(page).toHaveURL(/\/login$/);
+    await expect(page.getByRole('button', { name: 'Try the demo' })).toBeVisible();
 
     await page.getByLabel('Password').fill('wrong password');
     await page.getByRole('button', { name: 'Sign in' }).click();
@@ -38,6 +39,42 @@ test('the collection is behind the password', async ({ page }) =>
     await page.getByRole('button', { name: 'Sign in' }).click();
     await expect(page).toHaveURL(/\?profile=galeswift$/);
     await expect(page.getByText(`${seedStandalone} games · ${seedExpansions} expansions reviewed separately`)).toBeVisible();
+});
+
+test('the demo shows the sample collection without saving anything', async ({ page }) =>
+{
+    await page.goto('/login');
+    await page.getByRole('button', { name: 'Try the demo' }).click();
+
+    await expect(page.getByText('Sample collection', { exact: true })).toBeVisible();
+    await expect(page.getByRole('note')).toContainText('nothing is saved');
+    await expect(page.getByText(`${seedStandalone} games · ${seedExpansions} expansions reviewed separately`)).toBeVisible();
+    await expect(page.getByRole('combobox', { name: 'Whose collection' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Sync from BGG' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Import', exact: true })).toHaveCount(0);
+
+    // Changes work on the page but stay there.
+    await page.locator('#target').fill(String(seedStandalone - 5));
+    await expect(page.getByRole('tab', { name: 'Cull list 5' })).toBeVisible();
+    await expect(page.getByText('Demo: changes aren’t saved')).toBeVisible();
+
+    await page.getByRole('tab', { name: /Cull list/ }).click();
+    await expect(page.getByRole('button', { name: /(Check|Refresh) prices/ })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Sell on eBay' }).click();
+    const panel = page.getByRole('dialog');
+
+    await panel.getByRole('checkbox').first().click();
+    await panel.getByRole('button', { name: 'Write descriptions (1)' }).click();
+    await expect(panel.getByText('Template', { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(panel.getByText('The demo uses the built-in description template.')).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    await page.reload();
+    await expect(page.locator('#target')).toHaveValue('192');
+
+    // The owner's sign-in is one click away.
+    await page.getByRole('note').getByRole('link', { name: 'Sign in' }).click();
+    await expect(page).toHaveURL(/\/login$/);
 });
 
 test("a friend's BGG collection imports into its own profile", async ({ page }) =>

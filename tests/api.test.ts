@@ -36,7 +36,7 @@ vi.mock('@/lib/bgg', async original => ({
     fetchThingDetails: async () => new Map(),
 }));
 
-import { sessionToken } from '@/app/auth';
+import { demoToken, sessionToken } from '@/app/auth';
 import { GET, POST } from '@/app/api/state/route';
 import { POST as prices } from '@/app/api/prices/route';
 import { POST as importBgg } from '@/app/api/bgg/route';
@@ -497,6 +497,97 @@ describe('eBay description route', () =>
         expect((await write([])).status).toBe(400);
         mocks.signedIn = false;
         expect((await write(['1'])).status).toBe(401);
+    });
+});
+
+describe('demo visitors', () =>
+{
+    beforeEach(() =>
+    {
+        mocks.token = demoToken()!;
+    });
+
+    it('always get the sample collection with default settings', async () =>
+    {
+        mocks.token = sessionToken()!;
+        await save({ action: 'settings', patch: { target: 5 } });
+        await save({ action: 'preference', id: seed[0].id, patch: { locked: true } });
+        mocks.token = demoToken()!;
+
+        const { status, body } = await load('galeswift');
+
+        expect(status).toBe(200);
+        expect(body).toMatchObject({ demo: true, profile: 'demo', profiles: ['demo'], aiAvailable: false, savedAt: null });
+        expect(body.games).toHaveLength(seed.length);
+        expect(body.settings).toEqual(defaults);
+        expect(body.preferences).toEqual({});
+    });
+
+    it('cannot save, import, assign groups or remove collections', async () =>
+    {
+        expect((await save({ action: 'settings', patch: { target: 5 } })).status).toBe(401);
+        expect((await save({ profile: 'friend', action: 'remove' })).status).toBe(401);
+        expect((await importBgg(apiRequest('/api/bgg', { method: 'POST', body: { profile: 'friend' } }))).status).toBe(401);
+        expect((await groupsRoute(apiRequest('/api/groups', { method: 'POST', body: { profile: 'friend', ids: ['1'] } }))).status).toBe(
+            401
+        );
+    });
+
+    it('read saved prices but never start lookups', async () =>
+    {
+        await db.pg.query('INSERT INTO prices(game_id,quote,checked) VALUES($1,$2,$3)', [
+            '1',
+            JSON.stringify(quoteFor('1')),
+            new Date().toISOString(),
+        ]);
+        let lookups = 0;
+
+        mocks.quote = async games =>
+        {
+            lookups++;
+
+            return quotes(games);
+        };
+
+        const cached = await lookup('cached', ['1', '2']);
+
+        expect(cached.status).toBe(200);
+        expect(Object.keys(cached.body.prices)).toEqual(['1']);
+        expect((await lookup('missing', ['2'])).status).toBe(403);
+        expect((await lookup('refresh', ['1'])).status).toBe(403);
+        expect(lookups).toBe(0);
+    });
+
+    it('get template descriptions without BGG or OpenAI calls', async () =>
+    {
+        let writes = 0;
+
+        mocks.write = async () =>
+        {
+            writes++;
+
+            return { copies: {}, ai: true, fetchedReviews: {} };
+        };
+
+        const facts: ListingFacts = {
+            id: '7',
+            name: 'Game 7',
+            publisher: '',
+            minPlayers: 2,
+            maxPlayers: 4,
+            minutes: 60,
+            complexity: 2,
+            similar: [],
+            condition: 'Used',
+        };
+        const res = await describe_(apiRequest('/api/ebay/descriptions', { method: 'POST', body: { games: [facts] } }));
+        const body = await res.json();
+
+        expect(res.status).toBe(200);
+        expect(body.ai).toBe(false);
+        expect(body.copies['7'].source).toBe('template');
+        expect(body.copies['7'].intro).toContain('Game 7');
+        expect(writes).toBe(0);
     });
 });
 

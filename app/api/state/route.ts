@@ -1,4 +1,4 @@
-import { getUser, sameOrigin } from '../../auth';
+import { getUser, getViewer, sameOrigin } from '../../auth';
 import { getDb } from '@/db';
 import seed from '@/lib/collection.json';
 import { defaults, type Game, type Preference, type Settings } from '@/lib/model';
@@ -10,13 +10,32 @@ import { aiConfigured } from '@/lib/openai';
 export const dynamic = 'force-dynamic';
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
 
+export const DEMO_PROFILE = 'demo';
+
 export async function GET(request: Request)
 {
-    const user = await getUser();
+    const viewer = await getViewer();
 
-    if (!user)
+    if (!viewer)
     {
         return json({ error: 'Sign in to load your saved collection.' }, 401);
+    }
+
+    // The demo always gets the bundled sample collection with default settings.
+    // It never reads saved data, so nobody's choices are visible to visitors.
+    if (viewer.demo)
+    {
+        return json({
+            profile: DEMO_PROFILE,
+            defaultProfile: DEMO_PROFILE,
+            aiAvailable: false,
+            demo: true,
+            profiles: [DEMO_PROFILE],
+            games: seed,
+            settings: defaults,
+            preferences: {},
+            savedAt: null,
+        });
     }
 
     let profile;
@@ -51,6 +70,7 @@ export async function GET(request: Request)
             profile,
             defaultProfile: defaultProfile(),
             aiAvailable: aiConfigured(),
+            demo: false,
             profiles: [...new Set([defaultProfile(), ...owners.rows.map(row => row.owner)])].sort(),
             games: saved?.games ?? (profile === defaultProfile() ? seed : []),
             settings: { ...defaults, ...saved?.settings },
