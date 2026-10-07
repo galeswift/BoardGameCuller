@@ -32,6 +32,10 @@ export default defineConfig({
         BGG_API_TOKEN: "e2e-token",
         BGG_API_BASE: "http://127.0.0.1:3199/xmlapi2",
         BGP_API_BASE: "http://127.0.0.1:3199",
+        // Next loads .env.local, but never overrides variables that are already set:
+        // blank these so tests never call the real OpenAI API.
+        OPENAI_API_KEY: "",
+        OPENAI_MODEL: "",
         DEFAULT_PROFILE: "galeswift",
       },
     },

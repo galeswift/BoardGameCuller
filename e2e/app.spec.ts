@@ -236,3 +236,43 @@ test("checking prices shows progress batch by batch", async ({ page }) => {
   await expect(progress).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Refresh prices" })).toBeEnabled();
 });
+
+test("All Games sorts by column, and collections can be removed", async ({ page }) => {
+  await signIn(page);
+  await expect(page.getByRole("tab", { name: "All Games" })).toHaveAttribute("aria-selected", "true");
+  const ratings = async () => (await page.locator("article.game-row .rating-value strong").allInnerTexts()).slice(0, 8).map(Number);
+
+  // Click the Rating header: highest first. Click again: lowest first.
+  const header = page.getByRole("columnheader", { name: "Sort by Rating" });
+  await page.getByRole("button", { name: "Sort by Rating" }).click();
+  await expect(header).toHaveAttribute("aria-sort", "descending");
+  await expect(page.getByText("Sorted by rating, highest first")).toBeVisible();
+  const desc = await ratings();
+  expect(desc).toEqual([...desc].sort((a, b) => b - a));
+  await page.getByRole("button", { name: "Sort by Rating" }).click();
+  await expect(header).toHaveAttribute("aria-sort", "ascending");
+  const asc = await ratings();
+  expect(asc).toEqual([...asc].sort((a, b) => a - b));
+
+  // The toolbar menu offers columns that have no header, like play time.
+  await page.getByRole("combobox", { name: "Sort games by" }).click();
+  await page.getByRole("option", { name: "Sort: Play time" }).click();
+  await expect(page.getByText("Sorted by play time, shortest first")).toBeVisible();
+
+  // Remove a test collection.
+  const friend = uniqueProfile("remove");
+  await openProfile(page, friend);
+  await page.getByRole("button", { name: "Import from BoardGameGeek" }).click();
+  await expect(page.getByText("Imported 3 entries")).toBeVisible({ timeout: 30_000 });
+  await page.getByRole("combobox", { name: "Whose collection" }).click();
+  await page.getByRole("option", { name: `Remove ${friend}’s collection…` }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toContainText(`Remove ${friend}’s collection?`);
+  await dialog.getByRole("button", { name: "Remove collection" }).click();
+  await expect(page.getByText(`Removed ${friend}’s collection.`)).toBeVisible();
+  await expect(page.getByText("galeswift’s collection")).toBeVisible();
+  await page.getByRole("combobox", { name: "Whose collection" }).click();
+  await expect(page.getByRole("option", { name: friend, exact: true })).toHaveCount(0);
+  // The default collection can't be removed.
+  await expect(page.getByRole("option", { name: /^Remove / })).toHaveCount(0);
+});

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { aiCopy, aiPrompt, decodeEntities, fetchBggDetails, fetchReviews, looksEnglish, postText, templateCopy, writeListings, type ListingFacts } from "@/lib/listing";
+import { aiCopy, aiPrompt, mayMentionBgg, plainPunctuation, decodeEntities, fetchBggDetails, fetchReviews, looksEnglish, postText, templateCopy, writeListings, type ListingFacts } from "@/lib/listing";
 
 const facts = (extra: Partial<ListingFacts> = {}): ListingFacts => ({
   id: "1", name: "Heat", publisher: "Days of Wonder", minPlayers: 1, maxPlayers: 6, bestPlayers: "4,5", minutes: 60,
@@ -57,7 +57,7 @@ describe("templateCopy", () => {
     const c = templateCopy(facts(), d);
     expect(c.intro).toMatch(/^Heat \(2022\) is a medium-light board game for 1–6 players that plays in about 60 minutes\. Race your car/);
     expect(c.intro).toContain("Second sentence here.");
-    expect(c.appeal).toBe("If you enjoy Flamme Rouge or Downforce, this is a natural fit for your shelf.");
+    expect(c.appeal).toBe("If you liked Flamme Rouge or Downforce, you'll probably like this one too.");
     expect(JSON.stringify(c)).not.toMatch(/rating|rank|\/10/i);
   });
 
@@ -252,5 +252,50 @@ describe("writeListings with reviews", () => {
     const out = await run(writeListings([facts()]));
     expect(out.fetchedReviews).toEqual({});
     expect(fetchMock.mock.calls.some(([u]) => u.includes("forum"))).toBe(false);
+  });
+});
+
+describe("writing voice", () => {
+  it("asks for the seller's casual voice, using their own writing as the example", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    fetchMock.mockResolvedValue(openAi('{"intro":"x","appeal":"y"}'));
+    await aiCopy(facts());
+    const system: string = JSON.parse(String(fetchMock.mock.calls[0][1]!.body)).messages[0].content;
+    expect(system).toContain("casual and conversational");
+    expect(system).toContain("Looking at what people say on BoardGameGeek, people like the decision space of how to spend loot");
+    expect(system).toMatch(/Avoid: hype or marketing words[^\n]*em dashes/);
+    expect(system).toContain("intro: at most 45 words.");
+    expect(system).toContain("appeal: at most 40 words.");
+  });
+});
+
+describe("plainPunctuation", () => {
+  it("swaps semicolons, dashes and exclamation marks for plain punctuation", () => {
+    expect(plainPunctuation("You draft tiles; it plays in 45 minutes!")).toBe("You draft tiles. It plays in 45 minutes.");
+    expect(plainPunctuation("A quick game — great for two")).toBe("A quick game, great for two");
+    expect(plainPunctuation("Plays 1–4 players")).toBe("Plays 1–4 players");
+  });
+
+  it("is applied to AI copy, which must not claim the seller's own experience", async () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-test");
+    fetchMock.mockResolvedValue(openAi('{"intro":"A dice crawler; plays fast.","appeal":"People like the loot — and the boss!"}'));
+    expect(await aiCopy(facts())).toEqual({ intro: "A dice crawler. Plays fast.", appeal: "People like the loot, and the boss." });
+    expect(JSON.parse(String(fetchMock.mock.calls[0][1]!.body)).messages[0].content).toContain("Never invent the seller's own experience");
+  });
+});
+
+describe("BoardGameGeek mentions", () => {
+  it("lets only about one game in four mention BoardGameGeek, the same way every time", () => {
+    const ids = Array.from({ length: 400 }, (_, i) => String(100000 + i));
+    expect(ids.filter(mayMentionBgg)).toHaveLength(100);
+    expect(mayMentionBgg("266192")).toBe(true);
+    expect(mayMentionBgg("311715")).toBe(false);
+  });
+
+  it("tells the model whether this listing may name BoardGameGeek", () => {
+    expect(aiPrompt(facts({ id: "266192" }))).toContain("You may mention BoardGameGeek once");
+    const other = aiPrompt(facts({ id: "311715" }));
+    expect(other).toContain("Don't mention BoardGameGeek or where the opinions come from.");
+    expect(other).not.toContain("You may mention BoardGameGeek");
   });
 });

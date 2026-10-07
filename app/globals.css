@@ -100,3 +100,12 @@
 .price-progress{display:flex;flex-direction:column;gap:8px;margin:0 0 16px;padding:12px 16px;border:1px solid var(--border);border-radius:10px;background:var(--card);font-size:.875rem;color:var(--muted-foreground);font-variant-numeric:tabular-nums}.price-progress [data-slot=progress]{height:8px}.price-progress [data-slot=progress-indicator]{background:#2f6b4f;transition:transform .4s ease}
 @media(prefers-color-scheme:dark){.price-progress [data-slot=progress-indicator]{background:#95dcb3}}
 .ebay-price-hint{margin:-4px 0 0;font-size:.8125rem}
+/* All Games: sortable column headers, aligned with the rows below */
+.all-columns{display:grid;grid-template-columns:24px minmax(230px,1fr) 70px 124px 150px 135px;gap:18px;align-items:center;padding:10px 20px;background:#fbfcfe;border-bottom:1px solid var(--border);font-size:.75rem;letter-spacing:.06em;text-transform:uppercase;color:#6b7a93}
+.all-columns button{display:inline-flex;align-items:center;gap:4px;font:inherit;letter-spacing:inherit;text-transform:inherit;color:inherit;padding:4px 6px;margin:-4px -6px;border-radius:6px}
+.all-columns button:hover{color:var(--foreground);background:var(--accent)}.all-columns button.active{color:var(--primary);font-weight:700}
+.all-columns span:nth-child(3){justify-self:end}
+.remove-option{color:var(--destructive)!important}
+@media(max-width:1100px){.all-columns{grid-template-columns:20px minmax(200px,1fr) 60px 124px 140px;gap:12px}.all-columns span:last-child{display:none}}
+@media(max-width:900px){.all-columns{display:none}}
+@media(prefers-color-scheme:dark){.all-columns{background:#1b2a42;color:#9fb2cf}}

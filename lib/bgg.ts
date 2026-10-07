@@ -1,4 +1,5 @@
 import {XMLParser} from 'fast-xml-parser';
+import {decodeEntities} from './text';
 import type {Game} from './model';
 
 // BGG XML API2. Since 2025 every request needs a registered application token:
@@ -67,7 +68,21 @@ function details(item:Node){
   theme:values('boardgamecategory').find(c=>!NON_THEME.has(c))||'',
   publisher:values('boardgamepublisher').find(p=>p!=='(Unknown)')||'',
   parents:links.filter(l=>l.type==='boardgameexpansion'&&l.inbound==='true').map(l=>({id:String(l.id),name:String(l.value)})),
+  categories:values('boardgamecategory'),
+  mechanics,
  };
+}
+export type ThingDetails=ReturnType<typeof details>;
+
+/** BGG game details (categories, mechanics, weight…) for any games, 20 per request. */
+export async function fetchThingDetails(ids:string[]):Promise<Map<string,ThingDetails>>{
+ const out=new Map<string,ThingDetails>();
+ for(let i=0;i<ids.length;i+=THING_BATCH){
+  if(i)await sleep(REQUEST_GAP_MS);
+  const doc=await bggXml(`thing?id=${ids.slice(i,i+THING_BATCH).join(',')}&stats=1`);
+  for(const item of doc.items?.item||[])out.set(String(item.id),details(item));
+ }
+ return out;
 }
 
 /** Owned games for a BGG user, keeping hand-edited fields from `previous` by BGG ID. */
@@ -78,7 +93,7 @@ export async function fetchBggCollection(username:string,previous:Game[]):Promis
  const expansions=await bggXml(`collection?username=${user}&own=1&stats=1&subtype=boardgameexpansion`);
  const owned=new Map<string,{name:string;type:Game['type'];stats:Node}>();
  for(const [doc,type] of [[standalone,'standalone'],[expansions,'expansion']] as const)
-  for(const item of doc.items?.item||[])if(!owned.has(String(item.objectid)))owned.set(String(item.objectid),{name:text(item.name?.[0]),type,stats:item.stats});
+  for(const item of doc.items?.item||[])if(!owned.has(String(item.objectid)))owned.set(String(item.objectid),{name:decodeEntities(text(item.name?.[0])),type,stats:item.stats});
  if(!owned.size)throw new BggError(`No owned games found in ${username}’s BGG collection.`);
  if(owned.size>1000)throw new BggError('Collections over 1,000 games aren’t supported.');
 

@@ -2,6 +2,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Game } from "@/lib/model";
 import type { PriceQuote, QuoteResult } from "@/lib/prices";
 import type { ListingFacts, ListingResult, Review } from "@/lib/listing";
+import type { GroupInput } from "@/lib/groups";
 
 const h = vi.hoisted(() => ({
   signedIn: true,
@@ -10,6 +11,11 @@ const h = vi.hoisted(() => ({
   fetchBgg: null as unknown as (username: string, previous: Game[]) => Promise<Game[]>,
   quote: null as unknown as (games: { id: string; name: string }[], opts: { sitename: string }) => Promise<QuoteResult>,
   write: null as unknown as (games: ListingFacts[], opts: { cachedReviews?: Map<string, Review[]> }) => Promise<ListingResult>,
+  group: null as unknown as (batch: GroupInput[], existing: string[]) => Promise<Record<string, string>>,
+}));
+vi.mock("@/lib/groups", async (original) => ({
+  ...(await original<object>()),
+  assignGroups: (b: GroupInput[], e: string[]) => h.group(b, e),
 }));
 vi.mock("@/lib/listing", async (original) => ({
   ...(await original<object>()),
@@ -26,6 +32,7 @@ vi.mock("@/lib/prices", async (original) => ({
 vi.mock("@/lib/bgg", async (original) => ({
   ...(await original<object>()),
   fetchBggCollection: (u: string, p: Game[]) => h.fetchBgg(u, p),
+  fetchThingDetails: async () => new Map(),
 }));
 
 import { sessionToken } from "@/app/auth";
@@ -33,6 +40,7 @@ import { GET, POST } from "@/app/api/state/route";
 import { POST as prices } from "@/app/api/prices/route";
 import { POST as importBgg } from "@/app/api/bgg/route";
 import { POST as describe_ } from "@/app/api/ebay/descriptions/route";
+import { POST as groupsRoute } from "@/app/api/groups/route";
 import { BggError } from "@/lib/bgg";
 import { defaults } from "@/lib/model";
 import seed from "@/lib/collection.json";
@@ -318,4 +326,78 @@ describe("eBay description route", () => {
     h.signedIn = false;
     expect((await write(["1"])).status).toBe(401);
   });
+});
+
+describe("removing a collection", () => {
+  it("deletes the profile's games, choices and settings but leaves others alone", async () => {
+    await save({ profile: "darkxao", action: "collection", games: [game("10")] });
+    await save({ profile: "darkxao", action: "preference", id: "10", patch: { thumb: 1 } });
+    await save({ profile: "darkxao", action: "settings", patch: { target: 5 } });
+    await save({ action: "preference", id: "10", patch: { thumb: -1 } });
+    expect((await load()).body.profiles).toEqual(["darkxao", "galeswift"]);
+
+    expect((await save({ profile: "darkxao", action: "remove" })).status).toBe(200);
+    const after = (await load()).body;
+    expect(after.profiles).toEqual(["galeswift"]);
+    expect(after.preferences).toEqual({ "10": { thumb: -1 } });
+    expect((await load("darkxao")).body).toMatchObject({ games: [], preferences: {} });
+  });
+
+  it("refuses to remove the default collection", async () => {
+    const res = await save({ action: "remove" });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("is the default");
+  });
+
+  it("tells the page which collection is the default", async () => {
+    expect((await load("someone")).body.defaultProfile).toBe("galeswift");
+  });
+});
+
+describe("play groups route", () =>
+{
+    const assign = async (ids: string[], profile = "friend") =>
+    {
+        const res = await groupsRoute(apiRequest("/api/groups", { method: "POST", body: { profile, ids } }));
+        return { status: res.status, body: await res.json() };
+    };
+
+    it("needs an OpenAI key", async () =>
+    {
+        vi.stubEnv("OPENAI_API_KEY", "");
+        expect((await assign(["1"])).body.error).toContain("OPENAI_API_KEY");
+        vi.unstubAllEnvs();
+    });
+
+    it("assigns groups only to ungrouped games and saves them", async () =>
+    {
+        vi.stubEnv("OPENAI_API_KEY", "sk-test");
+        await save({ profile: "friend", action: "collection", games: [game("1"), game("2", { group: "Kept group" }), game("3")] });
+        let asked: string[] = [];
+        let known: string[] = [];
+        h.group = async (batch, existing) =>
+        {
+            asked = batch.map((b) => b.game.id);
+            known = existing;
+            return { "1": "New group", "2": "Should not overwrite" };
+        };
+
+        const { body } = await assign(["1", "2"]);
+        expect(asked).toEqual(["1"]);
+        expect(known).toEqual(["- Kept group (1 games, e.g. Game 2)"]);
+        expect(body.groups).toEqual({ "1": "New group", "2": "Should not overwrite" });
+        const games = (await load("friend")).body.games.map((g: Game) => [g.id, g.group]);
+        expect(games).toEqual([["1", "New group"], ["2", "Kept group"], ["3", ""]]);
+        vi.unstubAllEnvs();
+    });
+
+    it("validates the request", async () =>
+    {
+        vi.stubEnv("OPENAI_API_KEY", "sk-test");
+        expect((await assign([])).status).toBe(400);
+        expect((await assign(Array.from({ length: 61 }, (_, i) => String(i)))).status).toBe(400);
+        h.signedIn = false;
+        expect((await assign(["1"])).status).toBe(401);
+        vi.unstubAllEnvs();
+    });
 });
