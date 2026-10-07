@@ -40,16 +40,6 @@
     "**/*.mts"
   ],
   "exclude": [
-    "node_modules",
-    "examples",
-    "build",
-    "scripts",
-    "vite.config.ts",
-    "drizzle.config.ts",
-    "cloudflare-env.d.ts",
-    "db/schema.ts",
-    "lib/connector*",
-    "components/connector-error.tsx",
-    "app/chatgpt-auth.ts"
+    "node_modules"
   ]
 }
