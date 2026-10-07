@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
-import { accessoryOnly, availableSources, combine, estimate, fetchBgp, fetchBggMarket, missesSources, quotePrices, resetEbayToken, titleMatches, type PriceQuote, type SourceEstimate } from "@/lib/prices";
+import { accessoryOnly, availableSources, combine, estimate, fetchBgp, fetchBggMarket, missesSources, quotePrices, type PriceQuote, type SourceEstimate } from "@/lib/prices";
 
 const NOW = Date.parse("2026-10-01T00:00:00Z");
 const SITE = { sitename: "https://cull.test", now: NOW };
@@ -24,12 +24,10 @@ async function run<T>(promise: Promise<T>) {
   return promise;
 }
 /** Routes fake responses by host. */
-function serve({ bgg = marketXml({}), bgp = bgpJson({}), ebay }: { bgg?: string; bgp?: Response; ebay?: (url: string) => Response }) {
+function serve({ bgg = marketXml({}), bgp = bgpJson({}) }: { bgg?: string; bgp?: Response }) {
   fetchMock.mockImplementation(async (url) => {
     if (url.includes("boardgamegeek")) return new Response(bgg);
     if (url.includes("boardgameprices")) return bgp.clone();
-    if (url.includes("oauth2/token")) return Response.json({ access_token: "ebay-token", expires_in: 7200 });
-    if (url.includes("ebay") && ebay) return ebay(url);
     throw new Error(`unexpected ${url}`);
   });
 }
@@ -37,9 +35,6 @@ function serve({ bgg = marketXml({}), bgp = bgpJson({}), ebay }: { bgg?: string;
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubEnv("BGG_API_TOKEN", "token");
-  vi.stubEnv("EBAY_CLIENT_ID", "");
-  vi.stubEnv("EBAY_CLIENT_SECRET", "");
-  resetEbayToken();
   fetchMock = vi.fn();
   vi.stubGlobal("fetch", fetchMock);
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -53,7 +48,7 @@ afterEach(() => {
 
 describe("estimate", () => {
   it("takes the median, range, dates and median shipping", () => {
-    expect(estimate([{ price: 30, shipping: 8 }, { price: 10 }, { price: 200, shipping: 12 }], "ebay")).toEqual({ source: "ebay", median: 30, low: 10, high: 200, count: 3, shipping: 10 });
+    expect(estimate([{ price: 30, shipping: 8 }, { price: 10 }, { price: 200, shipping: 12 }], "bgp")).toEqual({ source: "bgp", median: 30, low: 10, high: 200, count: 3, shipping: 10 });
     expect(estimate([{ price: 5, date: Date.parse("2025-03-02") }, { price: 6, date: Date.parse("2024-01-09") }], "bgg")).toMatchObject({ median: 5.5, since: "2024-01-09", until: "2025-03-02" });
     expect(estimate([], "bgg")).toBeNull();
   });
@@ -64,12 +59,12 @@ describe("combine", () => {
     ({ source, median, low: median - 5, high: median + 5, count, ...(shipping != null ? { shipping } : {}) });
 
   it("averages every source with enough listings", () => {
-    expect(combine(e("bgg", 20, 4), e("ebay", 30, 10, 8), e("bgp", 40, 25, 6))).toMatchObject({ median: 30, low: 15, high: 45, count: 39, shipping: 7 });
+    expect(combine(e("bgg", 20, 4, 8), e("bgp", 40, 25, 6))).toMatchObject({ median: 30, low: 15, high: 45, count: 29, shipping: 7 });
   });
   it("leaves out thin sources when a well-supported one exists", () => {
-    const c = combine(e("bgg", 99, 1), e("ebay", 30, 5));
+    const c = combine(e("bgg", 99, 1), e("bgp", 30, 5));
     expect(c).toMatchObject({ median: 30, count: 5 });
-    expect(c!.sources.map((s) => s.source)).toEqual(["ebay"]);
+    expect(c!.sources.map((s) => s.source)).toEqual(["bgp"]);
   });
   it("averages thin sources when nothing is well supported", () => {
     expect(combine(e("bgg", 20, 1), null, e("bgp", 40, 2))).toMatchObject({ median: 30, count: 3 });
@@ -77,23 +72,6 @@ describe("combine", () => {
   });
   it("omits shipping when no source knows it", () => {
     expect(combine(e("bgg", 20, 3))).not.toHaveProperty("shipping");
-  });
-});
-
-describe("titleMatches", () => {
-  it("needs every meaningful word of the game name", () => {
-    expect(titleMatches("Wingspan Board Game - Stonemaier, complete", "Wingspan")).toBe(true);
-    expect(titleMatches("The Castles of Burgundy board game", "Castles of Burgundy")).toBe(true);
-    expect(titleMatches("Wings of Glory WW1", "Wingspan")).toBe(false);
-  });
-  it("rejects accessories, partial lots and expansions", () => {
-    expect(titleMatches("Wingspan card sleeves 100 pack", "Wingspan")).toBe(false);
-    expect(titleMatches("Wingspan organizer insert", "Wingspan")).toBe(false);
-    expect(titleMatches("Wingspan European Expansion", "Wingspan")).toBe(false);
-  });
-  it("allows junk words that are part of the game's own name", () => {
-    expect(titleMatches("Too Many Bones board game Chip Theory", "Too Many Bones")).toBe(true);
-    expect(titleMatches("Dice Forge board game", "Dice Forge")).toBe(true);
   });
 });
 
@@ -119,33 +97,29 @@ describe("fetchBgp", () => {
 });
 
 describe("quotePrices", () => {
-  it("averages GeekMarket, eBay and BoardGamePrices.com for new, and keeps shipping separate", async () => {
-    vi.stubEnv("EBAY_CLIENT_ID", "id");
-    vi.stubEnv("EBAY_CLIENT_SECRET", "secret");
+  it("uses GeekMarket for used, averages it with store prices for new, and keeps shipping separate", async () => {
     serve({
       bgg: marketXml({ "1": [listing("good", "20", "2026-01-01"), listing("good", "30", "2026-02-01"), listing("good", "40", "2026-03-01"), listing("new", "50", "2026-03-01"), listing("new", "52", "2026-04-01"), listing("new", "54", "2026-05-01")] }),
       bgp: bgpJson({ "1": [store(40, "6.00"), store(42, "6.00"), store(44, "8.00")] }),
-      ebay: (url) => Response.json({ itemSummaries: (url.includes("1500") ? [34, 36, 38] : [60, 62, 64]).map((p) => ({ title: "Heat Pedal to the Metal board game", price: { value: String(p), currency: "USD" }, shippingOptions: [{ shippingCostType: "FIXED", shippingCost: { value: "9.00", currency: "USD" } }] })) }),
     });
     const out = await run(quotePrices([{ id: "1", name: "Heat: Pedal to the Metal" }], SITE));
-    expect(out.sources.sort()).toEqual(["bgg", "bgp", "ebay"]);
+    expect(out.sources.sort()).toEqual(["bgg", "bgp"]);
     const q = out.quotes["1"];
-    expect(q).toMatchObject({ v: 3, checkedAt: new Date(NOW).toISOString(), sources: ["bgg", "bgp", "ebay"] });
-    // Used: BGG 30 and eBay 36 → 33; only eBay knows shipping (9).
-    expect(q.used).toMatchObject({ median: 33, shipping: 9, count: 6 });
-    expect(q.used!.sources.map((s) => s.source)).toEqual(["bgg", "ebay"]);
-    // New: BGG 52, eBay 62, stores 42 → 52; shipping is the mean of eBay 9 and stores 6.
-    expect(q.new).toMatchObject({ median: 52, shipping: 7.5, count: 9 });
+    expect(q).toMatchObject({ v: 3, checkedAt: new Date(NOW).toISOString(), sources: ["bgg", "bgp"] });
+    // Used: GeekMarket only; it has no shipping data.
+    expect(q.used).toMatchObject({ median: 30, count: 3 });
+    expect(q.used).not.toHaveProperty("shipping");
+    // New: GeekMarket 52 and stores 42 → 47; shipping comes from the stores.
+    expect(q.new).toMatchObject({ median: 47, shipping: 6, count: 6 });
     expect(q.new!.sources.find((s) => s.source === "bgp")).toMatchObject({ median: 42, url: "https://boardgameprices.com/item/show/1" });
   });
 
-  it("uses whatever is available when eBay isn't configured", async () => {
+  it("only queries BGG and BoardGamePrices.com", async () => {
     serve({ bgg: marketXml({ "1": [listing("good", "14", "2026-01-01")] }), bgp: bgpJson({ "1": [store(40, "5.00"), store(44, "5.00"), store(48, "5.00")] }) });
     const out = await run(quotePrices([{ id: "1", name: "Game" }], SITE));
-    expect(out.sources.sort()).toEqual(["bgg", "bgp"]);
     expect(out.quotes["1"].used).toMatchObject({ median: 14, count: 1 });
     expect(out.quotes["1"].new).toMatchObject({ median: 44, shipping: 5 });
-    expect(fetchMock.mock.calls.some(([u]) => u.includes("ebay"))).toBe(false);
+    expect(fetchMock.mock.calls.every(([u]) => /boardgamegeek|boardgameprices/.test(u))).toBe(true);
   });
 
   it("prefers recent GeekMarket listings, falling back to older ones", async () => {
@@ -184,12 +158,10 @@ describe("missesSources", () => {
     expect(missesSources(quote(["bgg", "bgp"]))).toBe(false);
     expect(missesSources(quote())).toBe(true);
   });
-  it("follows configuration, e.g. once eBay keys are added", () => {
-    vi.stubEnv("EBAY_CLIENT_ID", "id");
-    vi.stubEnv("EBAY_CLIENT_SECRET", "secret");
-    expect(missesSources(quote(["bgg", "bgp"]))).toBe(true);
+  it("follows configuration: without a BGG token only store prices are available", () => {
     vi.stubEnv("BGG_API_TOKEN", "");
-    expect(availableSources()).toEqual(["ebay", "bgp"]);
+    expect(availableSources()).toEqual(["bgp"]);
+    expect(missesSources(quote(["bgp"]))).toBe(false);
   });
   it("records which sources answered", async () => {
     serve({ bgp: new Response("down", { status: 503 }) });

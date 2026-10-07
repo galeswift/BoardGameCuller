@@ -181,6 +181,8 @@ test("selected cull games become an eBay drafts upload file", async ({ page }) =
   await expect(page.getByText("Imported 3 entries")).toBeVisible({ timeout: 30_000 });
   await page.locator("#target").fill("1");
   await page.getByRole("tab", { name: /Cull list/ }).click();
+  await page.getByRole("button", { name: /(Check|Refresh) prices/ }).click();
+  await expect(page.getByText(/^Prices updated for/)).toBeVisible({ timeout: 30_000 });
 
   await page.getByRole("button", { name: "Sell on eBay" }).click();
   const panel = page.getByRole("dialog");
@@ -193,7 +195,20 @@ test("selected cull games become an eBay drafts upload file", async ({ page }) =
   await expect(description).toHaveValue(/^Test Tiles \(2021\) is a medium-light board game for 2–4 players that plays in about 30 minutes\. Lay tiles to build patterns\./);
   await expect(panel.getByRole("textbox", { name: /^Title/ })).toHaveValue("Test Tiles Board Game - Tile Co.");
   await panel.getByRole("textbox", { name: "Condition notes for buyers" }).fill("All tiles present.");
-  await panel.getByRole("spinbutton", { name: "Price (USD)" }).fill("27");
+
+  // Suggested price: 10% under the market estimate for the copy's condition.
+  const price = panel.getByRole("spinbutton", { name: "Price (USD)" });
+  await expect(price).toHaveValue("22.50");
+  await expect(panel.getByText("Suggested $22.50: 10% under the $25.00 used market estimate.")).toBeVisible();
+  await panel.getByRole("combobox", { name: "eBay condition for Test Tiles" }).click();
+  await page.getByRole("option", { name: "New", exact: true }).click();
+  await expect(price).toHaveValue("37.80");
+  await expect(panel.getByText("Suggested $37.80: 10% under the $42.00 new market estimate.")).toBeVisible();
+  // A price the seller typed is kept when the condition changes.
+  await price.fill("27");
+  await panel.getByRole("combobox", { name: "eBay condition for Test Tiles" }).click();
+  await page.getByRole("option", { name: "Used", exact: true }).click();
+  await expect(price).toHaveValue("27");
 
   const [download] = await Promise.all([page.waitForEvent("download"), panel.getByRole("button", { name: "Download eBay drafts (1)" }).click()]);
   expect(download.suggestedFilename()).toBe(`ebay-drafts-${friend}.csv`);

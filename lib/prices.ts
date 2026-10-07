@@ -1,16 +1,14 @@
 import {REQUEST_GAP_MS,THING_BATCH,bggXml,sleep,type Node} from './bgg';
 
-// Estimated resale values from up to three sources:
+// Estimated resale values from two sources:
 //  - BGG GeekMarket listings (thing?marketplace=1): used + new, matched by BGG ID.
-//  - eBay Browse API active fixed-price listings: used + new, matched by title.
-//    Only when EBAY_CLIENT_ID / EBAY_CLIENT_SECRET are set.
 //  - BoardGamePrices.com store prices: new (retail) only, matched by BGG ID.
 //    Their terms: cache for at least an hour and link back where shown.
 // Each source gives a USD median; the estimate averages the sources that have
 // enough listings. Shipping is kept separate from the item price.
-// All of these are asking prices, not completed sales.
+// Both are asking prices, not completed sales.
 
-export type PriceSource='bgg'|'ebay'|'bgp';
+export type PriceSource='bgg'|'bgp';
 export type SourceEstimate={source:PriceSource;median:number;low:number;high:number;count:number;since?:string;until?:string;shipping?:number;url?:string};
 export type PriceEstimate={median:number;low:number;high:number;count:number;shipping?:number;sources:SourceEstimate[]};
 // Bump when price rules change, so quotes saved under the old rules are rechecked.
@@ -100,57 +98,10 @@ export async function fetchBgp(ids:string[],sitename:string):Promise<Map<string,
  return out;
 }
 
-let ebayToken:{value:string;expires:number}|null=null;
-export const ebayConfigured=()=>!!(process.env.EBAY_CLIENT_ID&&process.env.EBAY_CLIENT_SECRET);
 /** Sources this server can query right now. */
-export const availableSources=():PriceSource[]=>[...(process.env.BGG_API_TOKEN?['bgg' as const]:[]),...(ebayConfigured()?['ebay' as const]:[]),'bgp'];
+export const availableSources=():PriceSource[]=>[...(process.env.BGG_API_TOKEN?['bgg' as const]:[]),'bgp'];
 /** A quote made without a source that's available now (e.g. before a BGG token was added) should be rechecked. */
 export const missesSources=(q:PriceQuote)=>!q.sources||availableSources().some(s=>!q.sources!.includes(s));
-export function resetEbayToken(){ebayToken=null;}
-
-async function ebayAccessToken():Promise<string>{
- if(ebayToken&&ebayToken.expires>Date.now()+60_000)return ebayToken.value;
- const basic=Buffer.from(`${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`).toString('base64');
- const r=await fetch('https://api.ebay.com/identity/v1/oauth2/token',{method:'POST',headers:{Authorization:`Basic ${basic}`,'Content-Type':'application/x-www-form-urlencoded'},body:'grant_type=client_credentials&scope=https%3A%2F%2Fapi.ebay.com%2Foauth%2Fapi_scope',cache:'no-store'});
- if(!r.ok)throw new Error(`eBay sign-in failed (${r.status}).`);
- const j=await r.json() as {access_token:string;expires_in:number};
- ebayToken={value:j.access_token,expires:Date.now()+j.expires_in*1000};
- return ebayToken.value;
-}
-
-const words=(s:string)=>s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g,' ').trim().split(' ').filter(Boolean);
-const STOP=new Set(['the','a','an','of','and','to','in','for','on']);
-// Accessories and partial lots that would drag the median around.
-const JUNK=/\b(sleeves?|inserts?|organi[sz]ers?|promos?|playmats?|mats?|lot|bundle|replacement|parts?|pieces?|expansion|upgrade|stickers?|coins?|tokens?|meeples?|minis|miniatures|dice|box only|empty|proxy|custom|3d printed|stl)\b/;
-
-/** Whether an eBay listing title is plausibly the base game itself. */
-export function titleMatches(listingTitle:string,gameName:string){
- const listing=new Set(words(listingTitle)),name=words(gameName);
- if(!name.filter(w=>!STOP.has(w)).every(w=>listing.has(w)))return false;
- const junk=listingTitle.toLowerCase().match(JUNK);
- return !junk||words(gameName).join(' ').includes(junk[0]);
-}
-
-const EBAY_CONDITIONS={new:'1000',used:'1500|2750|3000|4000|5000|6000'};
-
-export async function fetchEbay(gameName:string,condition:'new'|'used'):Promise<Listing[]>{
- const params=new URLSearchParams({q:`${gameName} board game`,limit:'50',filter:`buyingOptions:{FIXED_PRICE},priceCurrency:USD,conditionIds:{${EBAY_CONDITIONS[condition]}}`});
- const r=await fetch(`https://api.ebay.com/buy/browse/v1/item_summary/search?${params}`,{headers:{Authorization:`Bearer ${await ebayAccessToken()}`,'X-EBAY-C-MARKETPLACE-ID':'EBAY_US'},cache:'no-store'});
- if(!r.ok)throw new Error(`eBay search failed (${r.status}).`);
- type Money={value:string;currency:string};
- const j=await r.json() as {itemSummaries?:{title:string;price?:Money;shippingOptions?:{shippingCostType?:string;shippingCost?:Money}[]}[]};
- return (j.itemSummaries||[]).filter(i=>i.price?.currency==='USD'&&titleMatches(i.title,gameName)).map(i=>{
-  const ship=i.shippingOptions?.find(o=>o.shippingCost?.currency==='USD');
-  const shipping=ship?Number(ship.shippingCost!.value):NaN;
-  return {price:Number(i.price!.value),...(Number.isFinite(shipping)?{shipping}:{})};
- }).filter(l=>l.price>0);
-}
-
-/** Runs `fn` over items with at most `limit` in flight. */
-async function eachLimit<T>(items:T[],limit:number,fn:(item:T)=>Promise<void>){
- let next=0;
- await Promise.all(Array.from({length:Math.min(limit,items.length)},async()=>{while(next<items.length)await fn(items[next++]);}));
-}
 
 export type QuoteResult={quotes:Record<string,PriceQuote>;sources:PriceSource[];warnings:string[]};
 
@@ -160,16 +111,6 @@ export async function quotePrices(games:{id:string;name:string}[],{sitename,now=
   fetchBggMarket(ids).then(m=>{sources.push('bgg');return m;}).catch(e=>{console.error('BGG prices failed',e);warnings.push(`BGG GeekMarket unavailable: ${e instanceof Error?e.message:e}`);return new Map<string,Split>();}),
   fetchBgp(ids,sitename).then(m=>{sources.push('bgp');return m;}).catch(e=>{console.error('BoardGamePrices.com failed',e);warnings.push('BoardGamePrices.com unavailable.');return new Map<string,{listings:Listing[];url:string}>();}),
  ]);
- const ebay=new Map<string,{new:Listing[];used:Listing[]}>();
- if(ebayConfigured()){
-  sources.push('ebay');
-  let failed=false;
-  await eachLimit(games,4,async g=>{
-   const one=async(c:'new'|'used')=>{try{return await fetchEbay(g.name,c);}catch(e){console.error('eBay price lookup failed',g.name,e);failed=true;return [];}};
-   ebay.set(g.id,{used:await one('used'),new:await one('new')});
-  });
-  if(failed)warnings.push('Some eBay lookups failed.');
- }
  const checkedAt=new Date(now).toISOString(),quotes:Record<string,PriceQuote>={};
  for(const g of games){
   const split=market.get(g.id)??{new:[],used:[]};
@@ -177,10 +118,7 @@ export async function quotePrices(games:{id:string;name:string}[],{sitename,now=
   const anchor=retail&&retail.count>=MIN_LISTINGS?retail.median:null;
   const sane=(c:'new'|'used')=>(l:Listing)=>anchor==null||l.price>=anchor*FLOOR[c];
   const bgg=(c:'new'|'used')=>{const all=split[c].filter(sane(c)),recent=estimate(all.filter(l=>l.date==null||now-l.date<=RECENT_MS),'bgg');return recent&&recent.count>=MIN_LISTINGS?recent:estimate(all,'bgg');};
-  const fromEbay=(c:'new'|'used')=>estimate((ebay.get(g.id)?.[c]??[]).filter(sane(c)),'ebay');
-  quotes[g.id]={v:QUOTE_VERSION,checkedAt,sources:[...sources].sort(),
-   used:combine(bgg('used'),fromEbay('used')),
-   new:combine(bgg('new'),fromEbay('new'),retail)};
+  quotes[g.id]={v:QUOTE_VERSION,checkedAt,sources:[...sources].sort(),used:combine(bgg('used')),new:combine(bgg('new'),retail)};
  }
  return {quotes,sources,warnings};
 }

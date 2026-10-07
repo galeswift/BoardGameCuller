@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { defaultTitle, draftsCsv, listingHtml, type EbayDraft } from "@/lib/ebay-drafts";
+import { UNDERCUT, defaultTitle, draftsCsv, listingHtml, undercutPrice, type EbayDraft } from "@/lib/ebay-drafts";
 
 const draft = (extra: Partial<EbayDraft> = {}): EbayDraft => ({
   id: "13", name: "Catan", title: "Catan Board Game - Catan Studio", price: 32, condition: "Used",
@@ -52,5 +52,14 @@ describe("draftsCsv", () => {
     const row = draftsCsv([draft({ condition: "Unpunched" })]).split("\r\n")[2];
     expect(row).toContain(",3000,");
     expect(row).toContain("Opened but never played");
+  });
+});
+
+describe("undercutPrice", () => {
+  it("suggests 10% under the market estimate, to the cent", () => {
+    expect(UNDERCUT).toBe(0.1);
+    expect(undercutPrice(25.5)).toBe(22.95);
+    expect(undercutPrice(42)).toBe(37.8);
+    expect(undercutPrice(19.99)).toBe(17.99);
   });
 });

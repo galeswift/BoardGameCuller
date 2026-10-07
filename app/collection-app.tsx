@@ -23,7 +23,7 @@ const usd=(n:number)=>'$'+Math.round(n);
 const month=(d:string)=>new Date(d+'T00:00:00Z').toLocaleDateString(undefined,{month:'short',year:'numeric',timeZone:'UTC'});
 // Prices are looked up a batch at a time so the page can show progress.
 const PRICE_BATCH=10,PRICE_STALE_MS=14*24*3600*1000;
-const SOURCE_NAMES:Record<PriceSource,string>={bgg:'BGG GeekMarket',ebay:'eBay',bgp:'BoardGamePrices.com'};
+const SOURCE_NAMES:Record<PriceSource,string>={bgg:'BGG GeekMarket',bgp:'BoardGamePrices.com'};
 function PriceLine({label,e,checkedAt}:{label:'Used'|'New';e:PriceEstimate|null;checkedAt:string}){
  const lines=e?[
   ...e.sources.map(s=>`${SOURCE_NAMES[s.source]}: ${usd(s.median)} median of ${s.count} ${s.source==='bgp'?'store price':'listing'}${s.count===1?'':'s'} (${usd(s.low)}–${usd(s.high)})${s.shipping!=null?`, shipping ~${usd(s.shipping)}`:''}${s.since?`, listed ${month(s.since)} – ${month(s.until!)}`:''}`),

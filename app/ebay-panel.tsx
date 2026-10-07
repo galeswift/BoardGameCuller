@@ -7,7 +7,7 @@ import {Input} from '@/components/ui/input';
 import {Textarea} from '@/components/ui/textarea';
 import {Select,SelectContent,SelectItem,SelectTrigger,SelectValue} from '@/components/ui/select';
 import {Sheet,SheetContent,SheetDescription,SheetHeader,SheetTitle} from '@/components/ui/sheet';
-import {TITLE_MAX,defaultTitle,draftsCsv,type EbayDraft} from '@/lib/ebay-drafts';
+import {TITLE_MAX,UNDERCUT,defaultTitle,draftsCsv,undercutPrice,type EbayDraft} from '@/lib/ebay-drafts';
 import type {ListingCopy,ListingFacts} from '@/lib/listing';
 import {CONDITIONS,DEFAULT_CONDITION,complexitySimilarity,type Condition,type Scored} from '@/lib/model';
 import type {PriceQuote} from '@/lib/prices';
@@ -25,9 +25,19 @@ function similarTo(g:Scored,all:Scored[]){
  return [...(alt?[alt]:[]),...peers].slice(0,3).map(o=>o.name);
 }
 
+/** The market estimate that matches a copy's condition: new for sealed copies, used otherwise. */
+const marketFor=(q:PriceQuote|undefined,condition:Condition)=>condition==='New'?q?.new:q?.used;
+
+/** Suggested price: 10% under that market estimate. */
 function priceFor(q:PriceQuote|undefined,condition:Condition){
- const e=condition==='New'?q?.new:q?.used;
- return e?String(Math.round(e.median)):'';
+ const e=marketFor(q,condition);
+ return e?undercutPrice(e.median).toFixed(2):'';
+}
+
+function priceHint(q:PriceQuote|undefined,condition:Condition){
+ const e=marketFor(q,condition);
+ if(!e)return 'No market estimate yet. Use Check prices on the cull list to get a suggested price.';
+ return `Suggested $${undercutPrice(e.median).toFixed(2)}: ${Math.round(UNDERCUT*100)}% under the $${e.median.toFixed(2)} ${condition==='New'?'new':'used'} market estimate.`;
 }
 
 function factsList(g:Scored,d:Draft){
@@ -89,8 +99,10 @@ export function EbayPanel({open,onOpenChange,cull,all,prices,profile}:Props){
   {message&&<p className="ebay-message" role="status">{message}</p>}
   {ready.length>0&&<section className="ebay-step"><h3>2. Review listings</h3>{ready.map(g=>{const d=drafts[g.id];return <article key={g.id} className="ebay-draft"><header><strong>{g.name}</strong><span className={`ebay-source ${d.source}`}>{d.source==='ai'?'AI-written':'Template'}</span><Button variant="ghost" onClick={()=>void write([g])} disabled={!!busy} aria-label={`Rewrite description for ${g.name}`}><RefreshCw/>Rewrite</Button></header>
     <label>Title <span className="ebay-count">{d.title.length}/{TITLE_MAX}</span><Input value={d.title} maxLength={TITLE_MAX} onChange={e=>edit(g.id,{title:e.target.value})}/></label>
-    <div className="ebay-row"><label>Price (USD)<Input type="number" min={0} step="1" value={d.price} placeholder="Set a price" onChange={e=>edit(g.id,{price:e.target.value})}/></label>
-     <label>Condition<Select value={d.condition} onValueChange={v=>edit(g.id,{condition:v as Condition,price:d.price||priceFor(prices[g.id],v as Condition)})}><SelectTrigger aria-label={`eBay condition for ${g.name}`}><SelectValue/></SelectTrigger><SelectContent>{CONDITIONS.map(c=><SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></label></div>
+    <div className="ebay-row"><label>Price (USD)<Input type="number" min={0} step="0.01" value={d.price} placeholder="Set a price" onChange={e=>edit(g.id,{price:e.target.value})}/></label>
+     {/* Follow the new condition's suggestion unless the seller typed their own price. */}
+     <label>Condition<Select value={d.condition} onValueChange={v=>edit(g.id,{condition:v as Condition,price:!d.price||d.price===priceFor(prices[g.id],d.condition)?priceFor(prices[g.id],v as Condition):d.price})}><SelectTrigger aria-label={`eBay condition for ${g.name}`}><SelectValue/></SelectTrigger><SelectContent>{CONDITIONS.map(c=><SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent></Select></label></div>
+    <p className="hint ebay-price-hint">{priceHint(prices[g.id],d.condition)}</p>
     <label>Description<Textarea rows={7} value={d.description} onChange={e=>edit(g.id,{description:e.target.value})}/></label>
     <label>Condition notes for buyers<Textarea rows={2} value={d.notes} placeholder="e.g. All components present, cards sleeved, light shelf wear on the box." onChange={e=>edit(g.id,{notes:e.target.value})}/></label>
     <p className="hint">The listing also includes player count, play time, complexity, publisher, year and a condition statement.</p>

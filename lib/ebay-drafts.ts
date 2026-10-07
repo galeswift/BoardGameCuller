@@ -7,6 +7,9 @@ export const EBAY_BOARD_GAMES_CATEGORY='180349'; // Toys & Hobbies › Games ›
 const INFO=['#INFO','Version=0.0.2','Template= eBay-draft-listings-template_US'];
 const HEADER=['Action(SiteID=US|Country=US|Currency=USD|Version=1193|CC=UTF-8)','Custom label (SKU)','Category ID','Title','UPC','Price','Quantity','Item photo URL','Condition ID','Description','Format'];
 export const TITLE_MAX=80;
+/** Suggested prices undercut the market estimate by this much, to sell quickly. */
+export const UNDERCUT=0.1;
+export const undercutPrice=(marketMedian:number)=>Math.round(marketMedian*(1-UNDERCUT)*100)/100;
 
 /** eBay condition per trade-in condition. Unpunched is listed as Used with an explanatory note. */
 export const EBAY_CONDITION:Record<Condition,{id:'1000'|'3000';text:string}>={
