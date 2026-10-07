@@ -17,6 +17,10 @@ export type Game = {
     parentId?: string;
     parentName?: string;
     publisher?: string;
+    // BGG categories, mechanisms and families, used to tell how alike two games are.
+    categories?: string[];
+    mechanics?: string[];
+    families?: string[];
 };
 
 export type Preference = {
@@ -99,6 +103,83 @@ export function complexitySimilarity(weight: number | null, otherWeight: number 
     return Math.max(0, 1 - relativeDifficultyGap / (maxDifficultyRatio - 1));
 }
 
+// Tags this alike (rarity-weighted cosine) count as a full match. That's about the 90th
+// percentile of same-group pairs in the sample collection: only sequels, editions and
+// games from one series score above it.
+const fullTagMatch = 0.5;
+
+/** A game's BGG tags, or null when they haven't been fetched (collections synced before tags existed). */
+export function gameTags(game: Pick<Game, 'categories' | 'mechanics' | 'families'>): string[] | null
+{
+    const tags = [
+        ...(game.categories ?? []).map(tag => 'category:' + tag),
+        ...(game.mechanics ?? []).map(tag => 'mechanic:' + tag),
+        ...(game.families ?? []).map(tag => 'family:' + tag),
+    ];
+
+    return tags.length ? tags : null;
+}
+
+/** How rare each tag is in the collection. Tags most games share (Fantasy, Dice Rolling) say little about a pair. */
+export function tagRarity(tagLists: string[][]): Map<string, number>
+{
+    const counts = new Map<string, number>();
+
+    for (const tags of tagLists)
+    {
+        for (const tag of new Set(tags))
+        {
+            counts.set(tag, (counts.get(tag) ?? 0) + 1);
+        }
+    }
+
+    const rarity = new Map<string, number>();
+
+    for (const [tag, count] of counts)
+    {
+        rarity.set(tag, Math.log((tagLists.length + 1) / (count + 1)) + 1);
+    }
+
+    return rarity;
+}
+
+/**
+ * How alike two games' tags are: the cosine of their tag vectors, each tag weighted by its
+ * rarity, scaled so `fullTagMatch` reads as 1. Also returns the shared tags, rarest first.
+ */
+export function tagSimilarity(tags: string[], otherTags: string[], rarity: Map<string, number>)
+{
+    const tagSet = new Set(tags);
+    const otherSet = new Set(otherTags);
+    const weightOf = (tag: string) => (rarity.get(tag) ?? 1) ** 2;
+    const shared = [...tagSet].filter(tag => otherSet.has(tag));
+    let sharedWeight = 0;
+    let weight = 0;
+    let otherWeight = 0;
+
+    for (const tag of shared)
+    {
+        sharedWeight += weightOf(tag);
+    }
+
+    for (const tag of tagSet)
+    {
+        weight += weightOf(tag);
+    }
+
+    for (const tag of otherSet)
+    {
+        otherWeight += weightOf(tag);
+    }
+
+    const cosine = sharedWeight / Math.sqrt(weight * otherWeight);
+
+    return {
+        score: Math.min(1, cosine / fullTagMatch),
+        shared: shared.sort((a, b) => weightOf(b) - weightOf(a)).map(tag => tag.slice(tag.indexOf(':') + 1)),
+    };
+}
+
 export function calculate(state: State)
 {
     const settings = state.settings;
@@ -150,6 +231,19 @@ export function calculate(state: State)
     }
 
     const representatives = new Set<string>();
+    const tagsById = new Map<string, string[]>();
+
+    for (const game of scored)
+    {
+        const tags = gameTags(game);
+
+        if (tags)
+        {
+            tagsById.set(game.id, tags);
+        }
+    }
+
+    const rarity = tagRarity([...tagsById.values()]);
 
     for (const members of groups.values())
     {
@@ -196,9 +290,23 @@ export function calculate(state: State)
                           (Math.max(peer.maxPlayers, representative.maxPlayers) - Math.min(peer.minPlayers, representative.minPlayers) + 1)
                         : 0;
                 const sameTheme = !!peer.theme && peer.theme === representative.theme;
+                const peerTags = tagsById.get(peer.id);
+                const representativeTags = tagsById.get(representative.id);
+                const tagMatch = peerTags && representativeTags ? tagSimilarity(peerTags, representativeTags, rarity) : null;
 
-                peer.similarity = Math.min(1, 0.4 + (sameTheme ? 0.15 : 0) + 0.2 * duration + 0.15 * weight + 0.1 * players);
-                peer.match = { sameTheme, duration, weight, players };
+                // Sharing a play group is a start; BGG tags decide how much of the experience overlaps.
+                // Without tags (collections not yet re-synced), fall back to the single theme.
+                peer.similarity = tagMatch
+                    ? 0.1 + 0.6 * tagMatch.score + 0.1 * duration + 0.1 * weight + 0.1 * players
+                    : Math.min(1, 0.4 + (sameTheme ? 0.15 : 0) + 0.2 * duration + 0.15 * weight + 0.1 * players);
+                peer.match = {
+                    sameTheme,
+                    duration,
+                    weight,
+                    players,
+                    tags: tagMatch?.score ?? null,
+                    sharedTags: tagMatch?.shared ?? [],
+                };
                 peer.overlap = settings.overlapWeight * Math.max(0, (peer.similarity - 0.55) / 0.45);
                 peer.alternative = representative.id;
             }
@@ -221,7 +329,7 @@ export function calculate(state: State)
     return { ranked, cull, kept, keepCount, protectedCount };
 }
 
-type Match = { sameTheme: boolean; duration: number; weight: number; players: number };
+type Match = { sameTheme: boolean; duration: number; weight: number; players: number; tags: number | null; sharedTags: string[] };
 
 export type Scored = ReturnType<typeof calculate>['ranked'][number];
 
@@ -336,9 +444,13 @@ export function keepFactors(game: Scored, state: State, result: ReturnType<typeo
                     : `${alternative.name} is also a cull candidate.`,
                 `Same group: ${game.group}${game.mode ? ` · ${game.mode}` : ''}`,
                 `Weight ${game.complexity?.toFixed(2)} vs ${alternative.complexity?.toFixed(2)} · ${percent(match.weight)} match`,
-                match.sameTheme
-                    ? `Same theme: ${game.theme}`
-                    : `Different theme: ${game.theme || 'unset'} vs ${alternative.theme || 'unset'}`,
+                match.tags != null
+                    ? `BGG categories, mechanisms and families · ${percent(match.tags)} match${
+                        match.sharedTags.length ? ` (both: ${match.sharedTags.slice(0, 4).join(', ')})` : ''
+                    }`
+                    : match.sameTheme
+                        ? `Same theme: ${game.theme}`
+                        : `Different theme: ${game.theme || 'unset'} vs ${alternative.theme || 'unset'}`,
                 game.minutes && alternative.minutes
                     ? `Length ${game.minutes} vs ${alternative.minutes} min · ${percent(match.duration)} match`
                     : 'Length unknown for one game',

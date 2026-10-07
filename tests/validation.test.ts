@@ -63,5 +63,7 @@ describe('validateGames', () =>
         expect(() => validateGames([game('1'), game('1')])).toThrow('duplicate ID');
         expect(() => validateGames([game('abc')])).toThrow('duplicate ID');
         expect(() => validateGames([game('1', { complexity: 9 })])).toThrow('Invalid numeric value.');
+        expect(() => validateGames([game('1', { mechanics: 'Dice Rolling' as unknown as string[] })])).toThrow('Invalid game tags.');
+        expect(() => validateGames([game('1', { families: [7 as unknown as string] })])).toThrow('Invalid game tags.');
     });
 });

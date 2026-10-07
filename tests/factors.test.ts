@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { calculate, cullExplanation, defaults, keepFactors, type Preference, type State } from '@/lib/model';
+import { calculate, cullExplanation, defaults, keepFactors, tagRarity, tagSimilarity, type Preference, type State } from '@/lib/model';
 import { game } from './helpers';
 
 const peer = (id: string, rating: number, extra = {}) =>
@@ -110,5 +110,66 @@ describe('cullExplanation', () =>
         const text = cullExplanation(result.cull[0], state, result);
 
         expect(text).toBe('Rating 6.0/10 (6.0); Your thumbs down (−30.0); Similar to Peer 1 (−20.0); Below your rating threshold (−15.0)');
+    });
+});
+
+describe('tag similarity', () =>
+{
+    const rarity = tagRarity([
+        ['category:Fantasy', 'mechanic:Dice Rolling', 'mechanic:Role Playing'],
+        ['category:Fantasy', 'mechanic:Dice Rolling', 'mechanic:Worker Placement'],
+        ['category:Fantasy', 'mechanic:Dice Rolling', 'mechanic:Role Playing'],
+        ['category:Fantasy', 'mechanic:Trick-taking'],
+    ]);
+
+    it('scores identical tags as a full match and disjoint tags as none', () =>
+    {
+        expect(tagSimilarity(['mechanic:Role Playing'], ['mechanic:Role Playing'], rarity).score).toBe(1);
+        expect(tagSimilarity(['mechanic:Role Playing'], ['mechanic:Trick-taking'], rarity)).toEqual({ score: 0, shared: [] });
+    });
+
+    it('weighs a shared rare tag above a shared common one', () =>
+    {
+        const rare = tagSimilarity(
+            ['category:Fantasy', 'mechanic:Role Playing'],
+            ['mechanic:Role Playing', 'mechanic:Trick-taking'],
+            rarity
+        );
+        const common = tagSimilarity(['category:Fantasy', 'mechanic:Role Playing'], ['category:Fantasy', 'mechanic:Trick-taking'], rarity);
+
+        expect(rare.score).toBeGreaterThan(common.score);
+        expect(rare.shared).toEqual(['Role Playing']);
+    });
+
+    it('lowers similarity for games in one group that share few BGG tags', () =>
+    {
+        const tagged = (id: string, mechanics: string[]) => peer(id, id === '1' ? 8.5 : 7.5, { categories: ['Fantasy'], mechanics });
+        const games = [
+            tagged('1', ['Cooperative Game', 'Role Playing', 'Narrative Choice / Paragraph']),
+            tagged('2', ['Cooperative Game', 'Worker Placement', 'Tech Trees / Tech Tracks']),
+            // Others in the collection make Fantasy and Cooperative common tags.
+            ...['3', '4'].map(id => ({ ...tagged(id, ['Cooperative Game']), group: '' })),
+        ];
+        const untagged = setup(games.map(entry => ({ ...entry, categories: undefined, mechanics: undefined }))).result;
+        const withTags = setup(games);
+        const similarity = (result: typeof untagged) => result.ranked.find(entry => entry.id === '2')!.similarity;
+
+        expect(similarity(untagged)).toBeGreaterThan(0.9);
+        expect(similarity(withTags.result)).toBeGreaterThan(0.3);
+        expect(similarity(withTags.result)).toBeLessThan(0.7);
+        expect(withTags.result.ranked.find(entry => entry.id === '2')!.match?.tags).toBeTypeOf('number');
+    });
+
+    it('explains the tag match and the tags both games share', () =>
+    {
+        const { factors } = setup([
+            peer('1', 8.5, { categories: ['Fantasy'], mechanics: ['Deck Building', 'Hand Management'] }),
+            peer('2', 7.5, { categories: ['Fantasy'], mechanics: ['Deck Building', 'Hand Management'] }),
+        ]);
+        const overlap = factors('2').find(factor => factor.kind === 'overlap')!;
+
+        expect(overlap.lines).toContain(
+            'BGG categories, mechanisms and families · 100% match (both: Fantasy, Deck Building, Hand Management)'
+        );
     });
 });

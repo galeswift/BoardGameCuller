@@ -20,6 +20,7 @@ const THINGS = `<?xml version="1.0" encoding="utf-8"?><items>
   <poll-summary name="suggested_numplayers"><result name="bestwith" value="Best with 2–3 players"/><result name="recommmendedwith" value="Recommended with 1–4 players"/></poll-summary>
   <link type="boardgamecategory" id="1" value="Card Game"/><link type="boardgamecategory" id="2" value="Fantasy"/>
   <link type="boardgamemechanic" id="3" value="Cooperative Game"/>
+  <link type="boardgamefamily" id="6" value="Mechanism: Campaign Games"/><link type="boardgamefamily" id="7" value="Crowdfunding: Kickstarter"/>
   <link type="boardgamepublisher" id="4" value="(Unknown)"/><link type="boardgamepublisher" id="5" value="Greater Than Games"/>
   <statistics><ratings><averageweight value="4.06"/></ratings></statistics>
  </item>
@@ -107,6 +108,10 @@ describe('fetchBggCollection', () =>
             mode: 'Cooperative',
             theme: 'Fantasy',
             publisher: 'Greater Than Games',
+            categories: ['Card Game', 'Fantasy'],
+            mechanics: ['Cooperative Game'],
+            // Families about how a game was sold, not how it plays, are dropped.
+            families: ['Mechanism: Campaign Games'],
         });
         expect(hanabi).toMatchObject({
             publisher: '',

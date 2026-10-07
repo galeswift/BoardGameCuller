@@ -146,6 +146,10 @@ const NON_THEME = new Set([
     'Comic Book / Strip',
 ]);
 
+// BGG families that describe how a game was sold or catalogued rather than how it plays.
+const NON_GAMEPLAY_FAMILY =
+    /^(Admin|Authors|Containers|Contests|Crowdfunding|Decades|Digital Implementations|Misc|Organizations|Versions & Editions):/;
+
 function details(item: Node)
 {
     const links: Node[] = item.link || [];
@@ -173,6 +177,7 @@ function details(item: Node)
             .map(link => ({ id: String(link.id), name: String(link.value) })),
         categories: values('boardgamecategory'),
         mechanics,
+        families: values('boardgamefamily').filter(family => !NON_GAMEPLAY_FAMILY.test(family)),
     };
 }
 
@@ -277,6 +282,9 @@ export async function fetchBggCollection(username: string, previous: Game[]): Pr
             parentId: parent?.id || prior?.parentId || '',
             parentName: parent?.name || prior?.parentName || '',
             publisher: thing?.publisher || prior?.publisher || '',
+            categories: thing?.categories ?? prior?.categories,
+            mechanics: thing?.mechanics ?? prior?.mechanics,
+            families: thing?.families ?? prior?.families,
         };
     });
 }

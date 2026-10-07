@@ -182,6 +182,19 @@ export function validateGames(games: unknown): Game[]
             }
         }
 
+        for (const field of ['categories', 'mechanics', 'families'])
+        {
+            const tags = game[field];
+
+            if (
+                tags != null &&
+                (!Array.isArray(tags) || tags.length > 200 || !tags.every(tag => typeof tag === 'string' && tag.length <= 200))
+            )
+            {
+                throw new Error('Invalid game tags.');
+            }
+        }
+
         return game as Game;
     });
 }

@@ -64,6 +64,14 @@ fake BoardGamePrices and PGlite over the wire, see `e2e/support/services.mjs`).
 - **Play groups:** auto-assigned with OpenAI (after Sync from BGG, or "Assign play groups"),
   batches of 60, reuse existing groups, retry skipped games, never overwrite. No group-size cap:
   scoring already only compares games of similar weight within a group.
+- **Similarity (overlap deductions):** games only compare within one play group + mode and
+  compatible weight. With BGG tags (categories, mechanisms, families minus sales/catalogue
+  families like Crowdfunding/Misc/Digital Implementations), similarity = 0.1 + 0.6 × tag match
+  + 0.1 each for length, weight, players. Tag match = rarity-weighted (IDF within the collection)
+  cosine, scaled so 0.5 counts as full (~90th percentile: sequels/editions/series). Calibrated so
+  Mythwind vs Fateforge ≈ 67% (user expects 50–70%); sequels ~96–99%. Games without tags
+  (collections not re-synced since tags were added) use the old theme-based formula.
+  The sample collection (`lib/collection.json`) has tags backfilled.
 - **Noble Knight export:** fills the bundled `public/nkg-trade-template.xlsx`; per-game condition,
   default Used.
 - **UI:** "All Games" tab (renamed from Preferences) with sortable headers; reason chips with
