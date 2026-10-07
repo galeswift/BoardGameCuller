@@ -5,6 +5,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 export type AppUser = { signedIn: true };
 
 export const SESSION_COOKIE = 'cc_session';
+
 export const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 
 function password(): string | null
@@ -16,20 +17,27 @@ function password(): string | null
 export function sessionToken(): string | null
 {
     const secret = password();
-    if (!secret) return null;
+
+    if (!secret)
+    {
+        return null;
+    }
+
     return createHmac('sha256', secret).update('collection-cull-session-v1').digest('hex');
 }
 
 function safeEqual(a: string, b: string): boolean
 {
-    const ha = createHash('sha256').update(a).digest();
-    const hb = createHash('sha256').update(b).digest();
-    return timingSafeEqual(ha, hb);
+    const actualHash = createHash('sha256').update(a).digest();
+    const expectedHash = createHash('sha256').update(b).digest();
+
+    return timingSafeEqual(actualHash, expectedHash);
 }
 
 export function passwordMatches(input: string): boolean
 {
     const secret = password();
+
     return !!secret && safeEqual(input, secret);
 }
 
@@ -37,7 +45,12 @@ export async function getUser(): Promise<AppUser | null>
 {
     const expected = sessionToken();
     const cookie = (await cookies()).get(SESSION_COOKIE)?.value;
-    if (!expected || !cookie || !safeEqual(cookie, expected)) return null;
+
+    if (!expected || !cookie || !safeEqual(cookie, expected))
+    {
+        return null;
+    }
+
     return { signedIn: true };
 }
 
@@ -46,5 +59,6 @@ export function sameOrigin(request: Request): boolean
 {
     const origin = request.headers.get('origin');
     const host = request.headers.get('x-forwarded-host') || request.headers.get('host');
+
     return !origin || new URL(origin).host === host;
 }

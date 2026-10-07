@@ -32,6 +32,7 @@ describe('fillTradeInTemplate', () =>
     it('keeps the header, condition dropdown, colour rules and instructions', () =>
     {
         const files = unzipSync(fillTradeInTemplate(template, rows));
+
         expect(xml).toMatch(/<row r="1"[^>]*>.*<\/row><row r="2">/);
         expect(xml).toContain('<dataValidation type="list"');
         expect(xml).toContain('<conditionalFormatting');

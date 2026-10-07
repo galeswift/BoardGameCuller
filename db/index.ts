@@ -31,13 +31,19 @@ const cache = globalThis as unknown as { pgPool?: Pool; pgReady?: Promise<unknow
 
 export async function getDb(): Promise<Pool>
 {
-    if (!process.env.DATABASE_URL) throw new Error('Preference storage is unavailable.');
+    if (!process.env.DATABASE_URL)
+    {
+        throw new Error('Preference storage is unavailable.');
+    }
+
     const pool = (cache.pgPool ??= new Pool({ connectionString: process.env.DATABASE_URL, max: 5 }));
-    cache.pgReady ??= pool.query(SCHEMA).catch(e =>
+
+    cache.pgReady ??= pool.query(SCHEMA).catch(error =>
     {
         cache.pgReady = undefined;
-        throw e;
+        throw error;
     });
     await cache.pgReady;
+
     return pool;
 }

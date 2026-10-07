@@ -19,8 +19,9 @@ const listing = (condition: string, price: string, date: string, currency = 'USD
     `<listing><listdate value="${day(date)}"/><price currency="${currency}" value="${price}"/><condition value="${condition}"/><notes value=""/></listing>`;
 const marketXml = (items: Record<string, string[]>) =>
     `<?xml version="1.0" encoding="utf-8"?><items>${Object.entries(items)
-        .map(([id, ls]) => `<item type="boardgame" id="${id}"><marketplacelistings>${ls.join('')}</marketplacelistings></item>`)
+        .map(([id, listings]) => `<item type="boardgame" id="${id}"><marketplacelistings>${listings.join('')}</marketplacelistings></item>`)
         .join('')}</items>`;
+
 type StorePrice = { product: number; shipping: number | string; shipping_known: boolean; stock: string };
 const bgpJson = (items: Record<string, StorePrice[]>) =>
     Response.json({
@@ -39,19 +40,31 @@ const store = (product: number, shipping: number | string = 0, shipping_known = 
 });
 
 let fetchMock: Mock<(url: string, init?: RequestInit) => Promise<Response>>;
+
 async function run<T>(promise: Promise<T>)
 {
-    promise.catch(() => {});
+    promise.catch(() =>
+    {});
     await vi.runAllTimersAsync();
+
     return promise;
 }
+
 /** Routes fake responses by host. */
 function serve({ bgg = marketXml({}), bgp = bgpJson({}) }: { bgg?: string; bgp?: Response })
 {
     fetchMock.mockImplementation(async url =>
     {
-        if (url.includes('boardgamegeek')) return new Response(bgg);
-        if (url.includes('boardgameprices')) return bgp.clone();
+        if (url.includes('boardgamegeek'))
+        {
+            return new Response(bgg);
+        }
+
+        if (url.includes('boardgameprices'))
+        {
+            return bgp.clone();
+        }
+
         throw new Error(`unexpected ${url}`);
     });
 }
@@ -62,7 +75,8 @@ beforeEach(() =>
     vi.stubEnv('BGG_API_TOKEN', 'token');
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() =>
+    {});
 });
 afterEach(() =>
 {
@@ -99,7 +113,7 @@ describe('estimate', () =>
 
 describe('combine', () =>
 {
-    const e = (source: SourceEstimate['source'], median: number, count: number, shipping?: number): SourceEstimate => ({
+    const makeEstimate = (source: SourceEstimate['source'], median: number, count: number, shipping?: number): SourceEstimate => ({
         source,
         median,
         low: median - 5,
@@ -110,22 +124,29 @@ describe('combine', () =>
 
     it('averages every source with enough listings', () =>
     {
-        expect(combine(e('bgg', 20, 4, 8), e('bgp', 40, 25, 6))).toMatchObject({ median: 30, low: 15, high: 45, count: 29, shipping: 7 });
+        expect(combine(makeEstimate('bgg', 20, 4, 8), makeEstimate('bgp', 40, 25, 6))).toMatchObject({
+            median: 30,
+            low: 15,
+            high: 45,
+            count: 29,
+            shipping: 7,
+        });
     });
     it('leaves out thin sources when a well-supported one exists', () =>
     {
-        const c = combine(e('bgg', 99, 1), e('bgp', 30, 5));
-        expect(c).toMatchObject({ median: 30, count: 5 });
-        expect(c!.sources.map(s => s.source)).toEqual(['bgp']);
+        const combined = combine(makeEstimate('bgg', 99, 1), makeEstimate('bgp', 30, 5));
+
+        expect(combined).toMatchObject({ median: 30, count: 5 });
+        expect(combined!.sources.map(sourceEstimate => sourceEstimate.source)).toEqual(['bgp']);
     });
     it('averages thin sources when nothing is well supported', () =>
     {
-        expect(combine(e('bgg', 20, 1), null, e('bgp', 40, 2))).toMatchObject({ median: 30, count: 3 });
+        expect(combine(makeEstimate('bgg', 20, 1), null, makeEstimate('bgp', 40, 2))).toMatchObject({ median: 30, count: 3 });
         expect(combine(null, null)).toBeNull();
     });
     it('omits shipping when no source knows it', () =>
     {
-        expect(combine(e('bgg', 20, 3))).not.toHaveProperty('shipping');
+        expect(combine(makeEstimate('bgg', 20, 3))).not.toHaveProperty('shipping');
     });
 });
 
@@ -145,8 +166,9 @@ describe('fetchBggMarket', () =>
             }),
         });
         const split = (await run(fetchBggMarket(['1']))).get('1')!;
-        expect(split.new.map(l => l.price)).toEqual([40]);
-        expect(split.used.map(l => l.price)).toEqual([30, 15]);
+
+        expect(split.new.map(entry => entry.price)).toEqual([40]);
+        expect(split.used.map(entry => entry.price)).toEqual([30, 15]);
         expect(fetchMock.mock.calls[0][0]).toContain('thing?id=1&marketplace=1');
     });
 });
@@ -167,9 +189,11 @@ describe('fetchBgp', () =>
             }),
         });
         const result = (await run(fetchBgp(['13'], 'https://cull.test'))).get('13')!;
+
         expect(result.listings).toEqual([{ price: 29.99, shipping: 5 }, { price: 39.99, shipping: 6.99 }, { price: 45 }]);
         expect(result.url).toBe('https://boardgameprices.com/item/show/13');
         const url = new URL(fetchMock.mock.calls[0][0]);
+
         expect(Object.fromEntries(url.searchParams)).toEqual({
             eid: '13',
             sitename: 'https://cull.test',
@@ -197,15 +221,20 @@ describe('quotePrices', () =>
             bgp: bgpJson({ '1': [store(40, '6.00'), store(42, '6.00'), store(44, '8.00')] }),
         });
         const out = await run(quotePrices([{ id: '1', name: 'Heat: Pedal to the Metal' }], SITE));
+
         expect(out.sources.sort()).toEqual(['bgg', 'bgp']);
-        const q = out.quotes['1'];
-        expect(q).toMatchObject({ v: 3, checkedAt: new Date(NOW).toISOString(), sources: ['bgg', 'bgp'] });
+        const quote = out.quotes['1'];
+
+        expect(quote).toMatchObject({ v: 3, checkedAt: new Date(NOW).toISOString(), sources: ['bgg', 'bgp'] });
         // Used: GeekMarket only; it has no shipping data.
-        expect(q.used).toMatchObject({ median: 30, count: 3 });
-        expect(q.used).not.toHaveProperty('shipping');
+        expect(quote.used).toMatchObject({ median: 30, count: 3 });
+        expect(quote.used).not.toHaveProperty('shipping');
         // New: GeekMarket 52 and stores 42 → 47; shipping comes from the stores.
-        expect(q.new).toMatchObject({ median: 47, shipping: 6, count: 6 });
-        expect(q.new!.sources.find(s => s.source === 'bgp')).toMatchObject({ median: 42, url: 'https://boardgameprices.com/item/show/1' });
+        expect(quote.new).toMatchObject({ median: 47, shipping: 6, count: 6 });
+        expect(quote.new!.sources.find(sourceEstimate => sourceEstimate.source === 'bgp')).toMatchObject({
+            median: 42,
+            url: 'https://boardgameprices.com/item/show/1',
+        });
     });
 
     it('only queries BGG and BoardGamePrices.com', async () =>
@@ -215,9 +244,10 @@ describe('quotePrices', () =>
             bgp: bgpJson({ '1': [store(40, '5.00'), store(44, '5.00'), store(48, '5.00')] }),
         });
         const out = await run(quotePrices([{ id: '1', name: 'Game' }], SITE));
+
         expect(out.quotes['1'].used).toMatchObject({ median: 14, count: 1 });
         expect(out.quotes['1'].new).toMatchObject({ median: 44, shipping: 5 });
-        expect(fetchMock.mock.calls.every(([u]) => /boardgamegeek|boardgameprices/.test(u))).toBe(true);
+        expect(fetchMock.mock.calls.every(([url]) => /boardgamegeek|boardgameprices/.test(url))).toBe(true);
     });
 
     it('prefers recent GeekMarket listings, falling back to older ones', async () =>
@@ -242,6 +272,7 @@ describe('quotePrices', () =>
                 SITE
             )
         );
+
         expect(out.quotes['1'].used).toMatchObject({ median: 30, count: 3 });
         expect(out.quotes['2'].used).toMatchObject({ median: 20, count: 2 });
     });
@@ -250,6 +281,7 @@ describe('quotePrices', () =>
     {
         serve({ bgg: marketXml({ '1': [listing('good', '12', '2026-01-01')] }), bgp: new Response('down', { status: 503 }) });
         const out = await run(quotePrices([{ id: '1', name: 'Game' }], SITE));
+
         expect(out.sources).toEqual(['bgg']);
         expect(out.warnings).toEqual(['BoardGamePrices.com unavailable.']);
         expect(out.quotes['1'].used).toMatchObject({ median: 12 });
@@ -260,6 +292,7 @@ describe('quotePrices', () =>
         vi.stubEnv('BGG_API_TOKEN', '');
         serve({ bgp: bgpJson({ '1': [store(40, '5.00')] }) });
         const out = await run(quotePrices([{ id: '1', name: 'Game' }], SITE));
+
         expect(out.sources).toEqual(['bgp']);
         expect(out.warnings[0]).toContain('BGG GeekMarket unavailable');
         expect(out.quotes['1']).toMatchObject({ used: null, new: { median: 40 } });
@@ -275,6 +308,7 @@ describe('missesSources', () =>
         checkedAt: '2026-10-01T00:00:00Z',
         ...(sources ? { sources } : {}),
     });
+
     it("flags quotes made without a source that's available now", () =>
     {
         expect(availableSources()).toEqual(['bgg', 'bgp']);
@@ -292,6 +326,7 @@ describe('missesSources', () =>
     {
         serve({ bgp: new Response('down', { status: 503 }) });
         const out = await run(quotePrices([{ id: '1', name: 'Game' }], SITE));
+
         expect(out.quotes['1'].sources).toEqual(['bgg']);
         expect(missesSources(out.quotes['1'])).toBe(true);
     });
@@ -321,8 +356,9 @@ describe('bad data', () =>
     it("skips GeekMarket listings whose notes say they're accessories only", async () =>
     {
         const mats = `<listing><listdate value="${day('2026-09-15')}"/><price currency="USD" value="10.00"/><condition value="new"/><notes value="This is for the dual layer player mats only."/></listing>`;
+
         serve({ bgg: marketXml({ '1': [mats, listing('new', '24', '2026-05-01')] }) });
-        expect((await run(fetchBggMarket(['1']))).get('1')!.new.map(l => l.price)).toEqual([24]);
+        expect((await run(fetchBggMarket(['1']))).get('1')!.new.map(entry => entry.price)).toEqual([24]);
     });
 
     it('merges every BoardGamePrices.com item for a BGG ID and keeps US stores only', async () =>
@@ -351,9 +387,10 @@ describe('bad data', () =>
                 ],
             }),
         });
-        const r = (await run(fetchBgp(['1'], 'https://cull.test'))).get('1')!;
-        expect(r.listings.map(l => l.price)).toEqual([14.99, 20.97]);
-        expect(r.url).toBe('https://bgp/item/a');
+        const result = (await run(fetchBgp(['1'], 'https://cull.test'))).get('1')!;
+
+        expect(result.listings.map(entry => entry.price)).toEqual([14.99, 20.97]);
+        expect(result.url).toBe('https://bgp/item/a');
     });
 
     it('drops listings far below the store price once there are enough store prices', async () =>
@@ -361,16 +398,17 @@ describe('bad data', () =>
         serve({
             bgg: marketXml({
                 '1': ['9', '38', '39', '41']
-                    .map(v => listing('new', v, '2026-05-01'))
-                    .concat(['8', '20', '22', '24'].map(v => listing('good', v, '2026-05-01'))),
+                    .map(price => listing('new', price, '2026-05-01'))
+                    .concat(['8', '20', '22', '24'].map(price => listing('good', price, '2026-05-01'))),
             }),
             bgp: bgpJson({ '1': [store(36, '5.00'), store(40, '5.00'), store(44, '5.00')] }),
         });
-        const q = (await run(quotePrices([{ id: '1', name: 'Game' }], SITE))).quotes['1'];
+        const quote = (await run(quotePrices([{ id: '1', name: 'Game' }], SITE))).quotes['1'];
+
         // New floor is half of $40 retail ($20): the $9 listing goes. Used floor is 30% ($12): the $8 one goes.
-        expect(q.new!.sources.find(s => s.source === 'bgg')).toMatchObject({ count: 3, median: 39 });
-        expect(q.new).toMatchObject({ median: 39.5 });
-        expect(q.used).toMatchObject({ median: 22, count: 3 });
+        expect(quote.new!.sources.find(sourceEstimate => sourceEstimate.source === 'bgg')).toMatchObject({ count: 3, median: 39 });
+        expect(quote.new).toMatchObject({ median: 39.5 });
+        expect(quote.used).toMatchObject({ median: 22, count: 3 });
     });
 
     it("keeps cheap listings when there's no store price to compare against", async () =>

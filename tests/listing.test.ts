@@ -40,12 +40,16 @@ const THING = `<?xml version="1.0" encoding="utf-8"?><items><item type="boardgam
 </item></items>`;
 
 let fetchMock: Mock<(url: string, init?: RequestInit) => Promise<Response>>;
-async function run<T>(p: Promise<T>)
+
+async function run<T>(promise: Promise<T>)
 {
-    p.catch(() => {});
+    promise.catch(() =>
+    {});
     await vi.runAllTimersAsync();
-    return p;
+
+    return promise;
 }
+
 const openAi = (content: string) => Response.json({ choices: [{ message: { content } }] });
 
 beforeEach(() =>
@@ -56,7 +60,8 @@ beforeEach(() =>
     vi.stubEnv('OPENAI_MODEL', '');
     fetchMock = vi.fn(async () => new Response(THING));
     vi.stubGlobal('fetch', fetchMock);
-    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() =>
+    {});
 });
 afterEach(() =>
 {
@@ -78,11 +83,12 @@ describe('fetchBggDetails', () =>
 {
     it('parses year, rank, description, links and useful comments', async () =>
     {
-        const d = (await run(fetchBggDetails(['1']))).get('1')!;
+        const details = (await run(fetchBggDetails(['1']))).get('1')!;
+
         expect(fetchMock.mock.calls[0][0]).toContain('thing?id=1&comments=1&pagesize=100');
-        expect(d).toMatchObject({ year: '2022', categories: ['Racing'], mechanics: ['Hand Management'] });
-        expect(d.description).toContain('Race your car around the track.\n\nManage your heat — or spin out!');
-        expect(d.comments).toEqual([
+        expect(details).toMatchObject({ year: '2022', categories: ['Racing'], mechanics: ['Hand Management'] });
+        expect(details.description).toContain('Race your car around the track.\n\nManage your heat — or spin out!');
+        expect(details.comments).toEqual([
             { rating: 9, text: 'Tense racing with clever heat management, plays great at five.' },
             { rating: 7, text: 'Love the "legends" bots for solo play, setup is quick too.' },
         ]);
@@ -93,23 +99,25 @@ describe('templateCopy', () =>
 {
     it('combines facts, the publisher blurb, similar games and rating', async () =>
     {
-        const d = (await run(fetchBggDetails(['1']))).get('1');
-        const c = templateCopy(facts(), d);
-        expect(c.intro).toMatch(
+        const details = (await run(fetchBggDetails(['1']))).get('1');
+        const copy = templateCopy(facts(), details);
+
+        expect(copy.intro).toMatch(
             /^Heat \(2022\) is a medium-light board game for 1–6 players that plays in about 60 minutes\. Race your car/
         );
-        expect(c.intro).toContain('Second sentence here.');
-        expect(c.appeal).toBe("If you liked Flamme Rouge or Downforce, you'll probably like this one too.");
-        expect(JSON.stringify(c)).not.toMatch(/rating|rank|\/10/i);
+        expect(copy.intro).toContain('Second sentence here.');
+        expect(copy.appeal).toBe("If you liked Flamme Rouge or Downforce, you'll probably like this one too.");
+        expect(JSON.stringify(copy)).not.toMatch(/rating|rank|\/10/i);
     });
 
     it('trims the publisher blurb to whole sentences', () =>
     {
-        const description = Array.from({ length: 12 }, (_, i) => `Sentence number ${i} is here to pad things out.`).join(' ');
-        const c = templateCopy(facts(), { description, categories: [], mechanics: [], comments: [] });
-        expect(c.intro).toContain('Sentence number 0 is here');
-        expect(c.intro).not.toContain('Sentence number 11');
-        expect(c.intro).toMatch(/.$/);
+        const description = Array.from({ length: 12 }, (_, index) => `Sentence number ${index} is here to pad things out.`).join(' ');
+        const copy = templateCopy(facts(), { description, categories: [], mechanics: [], comments: [] });
+
+        expect(copy.intro).toContain('Sentence number 0 is here');
+        expect(copy.intro).not.toContain('Sentence number 11');
+        expect(copy.intro).toMatch(/.$/);
     });
 
     it('works without BGG details', () =>
@@ -126,13 +134,16 @@ describe('aiCopy', () =>
     it('asks OpenAI for JSON with the facts and comments, using gpt-5-mini by default', async () =>
     {
         vi.stubEnv('OPENAI_API_KEY', 'sk-test');
-        const d = (await run(fetchBggDetails(['1']))).get('1');
+        const details = (await run(fetchBggDetails(['1']))).get('1');
+
         fetchMock.mockResolvedValue(openAi('{"intro":"A racing game.","appeal":"Fans of Flamme Rouge will love it."}'));
-        expect(await aiCopy(facts(), d)).toEqual({ intro: 'A racing game.', appeal: 'Fans of Flamme Rouge will love it.' });
+        expect(await aiCopy(facts(), details)).toEqual({ intro: 'A racing game.', appeal: 'Fans of Flamme Rouge will love it.' });
         const [url, init] = fetchMock.mock.calls.at(-1)!;
+
         expect(url).toBe('https://api.openai.com/v1/chat/completions');
         expect((init!.headers as Record<string, string>).Authorization).toBe('Bearer sk-test');
         const body = JSON.parse(String(init!.body));
+
         expect(body).toMatchObject({
             model: 'gpt-5-mini',
             response_format: { type: 'json_object' },
@@ -168,7 +179,7 @@ describe('comment selection', () =>
     it('summarises players who liked the game when there are enough of them', async () =>
     {
         vi.stubEnv('OPENAI_API_KEY', 'sk-test');
-        const d = {
+        const details = {
             description: '',
             categories: [],
             mechanics: [],
@@ -179,9 +190,11 @@ describe('comment selection', () =>
                 { rating: 3, text: 'Too random and far too long for me.' },
             ],
         };
+
         fetchMock.mockResolvedValue(openAi('{"intro":"x","appeal":"y"}'));
-        await aiCopy(facts(), d);
+        await aiCopy(facts(), details);
         const prompt = JSON.parse(String(fetchMock.mock.calls[0][1]!.body)).messages[1].content;
+
         expect(prompt).toContain('brilliant tension');
         expect(prompt).not.toContain('Too random');
     });
@@ -192,18 +205,20 @@ describe('writeListings', () =>
     it('uses the template when no OpenAI key is set', async () =>
     {
         const out = await run(writeListings([facts()]));
+
         expect(out.ai).toBe(false);
         expect(out.copies['1']).toMatchObject({ source: 'template', year: '2022' });
-        expect(fetchMock.mock.calls.every(([u]) => !u.includes('openai'))).toBe(true);
+        expect(fetchMock.mock.calls.every(([url]) => !url.includes('openai'))).toBe(true);
     });
 
     it('uses AI copy when available and falls back per game on failure', async () =>
     {
         vi.stubEnv('OPENAI_API_KEY', 'sk-test');
-        let n = 0;
+        let openAiCalls = 0;
+
         fetchMock.mockImplementation(async url =>
             url.includes('openai')
-                ? n++ === 0
+                ? openAiCalls++ === 0
                     ? openAi('{"intro":"AI intro.","appeal":"AI appeal."}')
                     : new Response('rate limited', { status: 429 })
                 : new Response(
@@ -214,10 +229,11 @@ describe('writeListings', () =>
                 )
         );
         const out = await run(writeListings([facts(), facts({ id: '2', name: 'Other' })]));
+
         expect(out.ai).toBe(true);
         expect(
             Object.values(out.copies)
-                .map(c => c.source)
+                .map(copy => copy.source)
                 .sort()
         ).toEqual(['ai', 'template']);
         expect(out.warning).toContain('OpenAI request failed');
@@ -227,6 +243,7 @@ describe('writeListings', () =>
     {
         vi.stubEnv('BGG_API_TOKEN', '');
         const out = await run(writeListings([facts()]));
+
         expect(out.copies['1'].source).toBe('template');
         expect(out.warning).toContain('Couldn’t reach BoardGameGeek');
     });
@@ -248,15 +265,33 @@ const BODIES: Record<string, string> = {
     '503': 'Dieses Spiel ist ein spannendes Rennspiel und die Hitzekarten machen jede Kurve zu einem Wagnis. '.repeat(6),
     '504': ENGLISH_REVIEW,
 };
+
 function serveForums()
 {
     fetchMock.mockImplementation(async url =>
     {
-        if (url.includes('forumlist')) return new Response(FORUMS);
-        if (url.includes('forum?id=77')) return new Response(THREADS);
+        if (url.includes('forumlist'))
+        {
+            return new Response(FORUMS);
+        }
+
+        if (url.includes('forum?id=77'))
+        {
+            return new Response(THREADS);
+        }
+
         const thread = url.match(/thread\?id=(\d+)/)?.[1];
-        if (thread) return new Response(article(BODIES[thread]));
-        if (url.includes('openai')) return openAi('{"intro":"AI intro.","appeal":"AI appeal."}');
+
+        if (thread)
+        {
+            return new Response(article(BODIES[thread]));
+        }
+
+        if (url.includes('openai'))
+        {
+            return openAi('{"intro":"AI intro.","appeal":"AI appeal."}');
+        }
+
         return new Response(THING);
     });
 }
@@ -283,13 +318,15 @@ describe('fetchReviews', () =>
     {
         serveForums();
         const reviews = await run(fetchReviews('1'));
-        expect(reviews.map(r => r.subject)).toEqual(['A great family racer', 'Solo & two-player thoughts']);
+
+        expect(reviews.map(review => review.subject)).toEqual(['A great family racer', 'Solo & two-player thoughts']);
         expect(reviews[0].text.startsWith('Verdict\nThis is a tense racing game')).toBe(true);
         expect(reviews[0].text.length).toBeLessThanOrEqual(1500);
-        const urls = fetchMock.mock.calls.map(([u]) => u);
+        const urls = fetchMock.mock.calls.map(([url]) => url);
+
         expect(urls[0]).toContain('forumlist?id=1&type=thing');
         expect(urls[1]).toContain('forum?id=77');
-        expect(urls.filter(u => u.includes('thread?id=')).every(u => u.endsWith('&count=1'))).toBe(true);
+        expect(urls.filter(url => url.includes('thread?id=')).every(url => url.endsWith('&count=1'))).toBe(true);
     });
 
     it('stops at three reviews', async () =>
@@ -298,7 +335,7 @@ describe('fetchReviews', () =>
         BODIES['503'] = ENGLISH_REVIEW;
         serveForums();
         expect(await run(fetchReviews('1'))).toHaveLength(3);
-        expect(fetchMock.mock.calls.filter(([u]) => u.includes('thread?id=504'))).toHaveLength(0);
+        expect(fetchMock.mock.calls.filter(([url]) => url.includes('thread?id=504'))).toHaveLength(0);
         BODIES['502'] = 'Watch it here: https://youtube.com/xyz';
         BODIES['503'] = 'Dieses Spiel ist ein spannendes Rennspiel. '.repeat(10);
     });
@@ -315,7 +352,7 @@ describe('aiPrompt', () =>
 {
     it('includes reviews and the most substantive liked comments', () =>
     {
-        const d = {
+        const details = {
             description: '',
             categories: [],
             mechanics: [],
@@ -326,7 +363,8 @@ describe('aiPrompt', () =>
                 { rating: 7, text: 'Solid fun.' },
             ],
         };
-        const prompt = aiPrompt(facts(), d);
+        const prompt = aiPrompt(facts(), details);
+
         expect(prompt).toContain("Player reviews (summarise what reviewers enjoy, don't quote):\n### Great racer\nLoved the tension");
         expect(prompt.indexOf('Long comment')).toBeLessThan(prompt.indexOf('Short but sweet'));
     });
@@ -339,10 +377,12 @@ describe('writeListings with reviews', () =>
         vi.stubEnv('OPENAI_API_KEY', 'sk-test');
         serveForums();
         const out = await run(writeListings([facts()]));
-        expect(out.fetchedReviews['1'].map(r => r.subject)).toEqual(['A great family racer', 'Solo & two-player thoughts']);
-        const prompt = JSON.parse(String(fetchMock.mock.calls.find(([u]) => u.includes('openai'))![1]!.body)).messages[1].content;
+
+        expect(out.fetchedReviews['1'].map(review => review.subject)).toEqual(['A great family racer', 'Solo & two-player thoughts']);
+        const prompt = JSON.parse(String(fetchMock.mock.calls.find(([url]) => url.includes('openai'))![1]!.body)).messages[1].content;
+
         expect(prompt).toContain('### A great family racer');
-        expect(JSON.parse(String(fetchMock.mock.calls.find(([u]) => u.includes('openai'))![1]!.body)).messages[0].content).toContain(
+        expect(JSON.parse(String(fetchMock.mock.calls.find(([url]) => url.includes('openai'))![1]!.body)).messages[0].content).toContain(
             'leave out their complaints'
         );
     });
@@ -354,9 +394,10 @@ describe('writeListings with reviews', () =>
         const out = await run(
             writeListings([facts()], { cachedReviews: new Map([['1', [{ subject: 'Cached review', text: 'From the cache.' }]]]) })
         );
+
         expect(out.fetchedReviews).toEqual({});
-        expect(fetchMock.mock.calls.some(([u]) => u.includes('forum'))).toBe(false);
-        expect(JSON.parse(String(fetchMock.mock.calls.find(([u]) => u.includes('openai'))![1]!.body)).messages[1].content).toContain(
+        expect(fetchMock.mock.calls.some(([url]) => url.includes('forum'))).toBe(false);
+        expect(JSON.parse(String(fetchMock.mock.calls.find(([url]) => url.includes('openai'))![1]!.body)).messages[1].content).toContain(
             '### Cached review'
         );
     });
@@ -365,8 +406,9 @@ describe('writeListings with reviews', () =>
     {
         serveForums();
         const out = await run(writeListings([facts()]));
+
         expect(out.fetchedReviews).toEqual({});
-        expect(fetchMock.mock.calls.some(([u]) => u.includes('forum'))).toBe(false);
+        expect(fetchMock.mock.calls.some(([url]) => url.includes('forum'))).toBe(false);
     });
 });
 
@@ -378,6 +420,7 @@ describe('writing voice', () =>
         fetchMock.mockResolvedValue(openAi('{"intro":"x","appeal":"y"}'));
         await aiCopy(facts());
         const system: string = JSON.parse(String(fetchMock.mock.calls[0][1]!.body)).messages[0].content;
+
         expect(system).toContain('casual and conversational');
         expect(system).toContain('Looking at what people say on BoardGameGeek, people like the decision space of how to spend loot');
         expect(system).toMatch(/Avoid: hype or marketing words[^\n]*em dashes/);
@@ -410,7 +453,8 @@ describe('BoardGameGeek mentions', () =>
 {
     it('lets only about one game in four mention BoardGameGeek, the same way every time', () =>
     {
-        const ids = Array.from({ length: 400 }, (_, i) => String(100000 + i));
+        const ids = Array.from({ length: 400 }, (_, index) => String(100000 + index));
+
         expect(ids.filter(mayMentionBgg)).toHaveLength(100);
         expect(mayMentionBgg('266192')).toBe(true);
         expect(mayMentionBgg('311715')).toBe(false);
@@ -420,6 +464,7 @@ describe('BoardGameGeek mentions', () =>
     {
         expect(aiPrompt(facts({ id: '266192' }))).toContain('You may mention BoardGameGeek once');
         const other = aiPrompt(facts({ id: '311715' }));
+
         expect(other).toContain("Don't mention BoardGameGeek or where the opinions come from.");
         expect(other).not.toContain('You may mention BoardGameGeek');
     });

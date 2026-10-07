@@ -9,9 +9,9 @@ const SHEET = 'xl/worksheets/sheet1.xml';
 
 export type TradeInRow = { publisher: string; title: string; condition: string; comments: string };
 
-const escapeXml = (s: string) =>
-    s
-        .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
+const escapeXml = (text: string) =>
+    text
+        .replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]!)
         // Characters XML 1.0 can't carry at all.
         .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
 const cell = (ref: string, value: string) =>
@@ -21,21 +21,34 @@ export function fillTradeInTemplate(template: Uint8Array, rows: TradeInRow[]): U
 {
     const files = unzipSync(template);
     const sheet = files[SHEET];
-    if (!sheet) throw new Error('This isn’t the Noble Knight trade-in template.');
+
+    if (!sheet)
+    {
+        throw new Error('This isn’t the Noble Knight trade-in template.');
+    }
+
     const xml = strFromU8(sheet);
     const header = xml.match(/<row r="1"[\s\S]*?<\/row>/)?.[0];
-    if (!header || !/<sheetData>[\s\S]*<\/sheetData>/.test(xml)) throw new Error('This isn’t the Noble Knight trade-in template.');
+
+    if (!header || !/<sheetData>[\s\S]*<\/sheetData>/.test(xml))
+    {
+        throw new Error('This isn’t the Noble Knight trade-in template.');
+    }
+
     const body = rows
-        .map((r, i) =>
+        .map((row, index) =>
         {
-            const n = i + 2;
-            return `<row r="${n}">${cell(`A${n}`, r.publisher)}${cell(`B${n}`, r.title)}${cell(`C${n}`, r.condition)}${cell(`D${n}`, r.comments)}</row>`;
+            const rowNumber = index + 2;
+
+            return `<row r="${rowNumber}">${cell(`A${rowNumber}`, row.publisher)}${cell(`B${rowNumber}`, row.title)}${cell(`C${rowNumber}`, row.condition)}${cell(`D${rowNumber}`, row.comments)}</row>`;
         })
         .join('');
     // Replace the sample row and the template's empty formatting rows with ours.
     const filled = xml
         .replace(/<sheetData>[\s\S]*<\/sheetData>/, `<sheetData>${header}${body}</sheetData>`)
         .replace(/<dimension ref="[^"]*"\/>/, `<dimension ref="A1:D${rows.length + 1}"/>`);
+
     files[SHEET] = strToU8(filled);
+
     return zipSync(files, { level: 6 });
 }

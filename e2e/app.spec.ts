@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { APP_PASSWORD } from '../playwright.config';
 
 const seed: { type: string }[] = JSON.parse(readFileSync(new URL('../lib/collection.json', import.meta.url), 'utf8'));
-const seedStandalone = seed.filter(g => g.type === 'standalone').length;
+const seedStandalone = seed.filter(game => game.type === 'standalone').length;
 const seedExpansions = seed.length - seedStandalone;
 
 async function signIn(page: Page)
@@ -43,6 +43,7 @@ test('the collection is behind the password', async ({ page }) =>
 test("a friend's BGG collection imports into its own profile", async ({ page }) =>
 {
     const friend = uniqueProfile('friend');
+
     await signIn(page);
 
     await openProfile(page, friend);
@@ -64,6 +65,7 @@ test("a friend's BGG collection imports into its own profile", async ({ page }) 
 
     // Preferences save and survive a reload.
     const keep = page.getByRole('button', { name: 'Prefer keep Fixture Quest' });
+
     await keep.click();
     await expect(keep).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('status').filter({ hasText: 'All changes saved' })).toBeVisible();
@@ -85,6 +87,7 @@ test("a friend's BGG collection imports into its own profile", async ({ page }) 
 test('re-syncing keeps choices made on the previous import', async ({ page }) =>
 {
     const friend = uniqueProfile('resync');
+
     await signIn(page);
     await page.goto(`/?profile=${friend}`);
     await page.getByRole('button', { name: 'Import from BoardGameGeek' }).click();
@@ -110,6 +113,7 @@ test('an unknown BGG username shows a clear error', async ({ page }) =>
 test('cull reasons show as icons with details on hover', async ({ page }) =>
 {
     const friend = uniqueProfile('icons');
+
     await signIn(page);
     await page.goto(`/?profile=${friend}`);
     await page.getByRole('button', { name: 'Import from BoardGameGeek' }).click();
@@ -118,6 +122,7 @@ test('cull reasons show as icons with details on hover', async ({ page }) =>
     await page.locator('#target').fill('1');
     await page.getByRole('tab', { name: /Cull list/ }).click();
     const row = page.locator('article', { hasText: 'Test Tiles' });
+
     await expect(row.getByRole('button', { name: /^Rating 6\.4\/10/ })).toHaveText('6.4');
     await expect(row.getByRole('button', { name: /^Below your rating threshold/ })).toHaveText('−9.0');
 
@@ -128,6 +133,7 @@ test('cull reasons show as icons with details on hover', async ({ page }) =>
 test("the cull list exports to Noble Knight's trade-in template", async ({ page }) =>
 {
     const friend = uniqueProfile('trade');
+
     await signIn(page);
     await page.goto(`/?profile=${friend}`);
     await page.getByRole('button', { name: 'Import from BoardGameGeek' }).click();
@@ -136,6 +142,7 @@ test("the cull list exports to Noble Knight's trade-in template", async ({ page 
     await page.getByRole('tab', { name: /Cull list/ }).click();
 
     const condition = page.getByRole('combobox', { name: 'Trade-in condition for Test Tiles' });
+
     await expect(condition).toHaveText('Used');
     await condition.click();
     await page.getByRole('option', { name: 'Unpunched' }).click();
@@ -145,10 +152,12 @@ test("the cull list exports to Noble Knight's trade-in template", async ({ page 
         page.waitForEvent('download'),
         page.getByRole('button', { name: 'Noble Knight trade-in' }).click(),
     ]);
+
     expect(download.suggestedFilename()).toBe(`noble-knight-trade-in-${friend}.xlsx`);
     const { readFile } = await import('node:fs/promises');
     const { strFromU8, unzipSync } = await import('fflate');
     const sheet = strFromU8(unzipSync(new Uint8Array(await readFile(await download.path())))['xl/worksheets/sheet1.xml']);
+
     expect(sheet).toContain('>Tile Co.<');
     expect(sheet).toContain('>Test Tiles<');
     expect(sheet).toContain('>Unpunched<');
@@ -158,6 +167,7 @@ test("the cull list exports to Noble Knight's trade-in template", async ({ page 
 test('the cull list shows estimated used and new values', async ({ page }) =>
 {
     const friend = uniqueProfile('value');
+
     await signIn(page);
     await page.goto(`/?profile=${friend}`);
     await page.getByRole('button', { name: 'Import from BoardGameGeek' }).click();
@@ -168,6 +178,7 @@ test('the cull list shows estimated used and new values', async ({ page }) =>
     await page.getByRole('button', { name: 'Check prices' }).click();
     await expect(page.getByText('Prices updated for 1 game from BGG GeekMarket, BoardGamePrices.com')).toBeVisible({ timeout: 30_000 });
     const row = page.locator('article', { hasText: 'Test Tiles' });
+
     await expect(row.getByRole('button', { name: /^Used value \$25\./ })).toBeVisible();
     // New: the three in-stock store prices outweigh a single GeekMarket listing.
     await expect(row.getByRole('button', { name: /^New value \$42\./ })).toBeVisible();
@@ -192,6 +203,7 @@ test('the cull list shows estimated used and new values', async ({ page }) =>
 test('selected cull games become an eBay drafts upload file', async ({ page }) =>
 {
     const friend = uniqueProfile('ebay');
+
     await signIn(page);
     await page.goto(`/?profile=${friend}`);
     await page.getByRole('button', { name: 'Import from BoardGameGeek' }).click();
@@ -203,12 +215,14 @@ test('selected cull games become an eBay drafts upload file', async ({ page }) =
 
     await page.getByRole('button', { name: 'Sell on eBay' }).click();
     const panel = page.getByRole('dialog');
+
     await panel.getByRole('checkbox', { name: 'Sell Test Tiles' }).click();
     await panel.getByRole('button', { name: 'Write descriptions (1)' }).click();
     await expect(panel.getByText('Template', { exact: true })).toBeVisible({ timeout: 30_000 });
     await expect(panel.getByText('Descriptions use the built-in template')).toBeVisible();
 
     const description = panel.getByRole('textbox', { name: 'Description' });
+
     await expect(description).toHaveValue(
         /^Test Tiles \(2021\) is a medium-light board game for 2–4 players that plays in about 30 minutes\. Lay tiles to build patterns\./
     );
@@ -217,6 +231,7 @@ test('selected cull games become an eBay drafts upload file', async ({ page }) =
 
     // Suggested price: 10% under the market estimate for the copy's condition.
     const price = panel.getByRole('spinbutton', { name: 'Price (USD)' });
+
     await expect(price).toHaveValue('22.50');
     await expect(panel.getByText('Suggested $22.50: 10% under the $25.00 used market estimate.')).toBeVisible();
     await panel.getByRole('combobox', { name: 'eBay condition for Test Tiles' }).click();
@@ -233,9 +248,11 @@ test('selected cull games become an eBay drafts upload file', async ({ page }) =
         page.waitForEvent('download'),
         panel.getByRole('button', { name: 'Download eBay drafts (1)' }).click(),
     ]);
+
     expect(download.suggestedFilename()).toBe(`ebay-drafts-${friend}.csv`);
     const { readFile } = await import('node:fs/promises');
     const lines = (await readFile(await download.path(), 'utf8')).split('\r\n');
+
     expect(lines[1]).toMatch(/^Action\(SiteID=US/);
     expect(lines[2]).toMatch(/^Draft,BGG-900002,180349,Test Tiles Board Game - Tile Co\.,,27\.00,1,,3000,"?<h2>Test Tiles<\/h2>/);
     expect(lines[2]).toContain('<p>All tiles present.</p>');
@@ -251,6 +268,7 @@ test('checking prices shows progress batch by batch', async ({ page }) =>
     await page.getByRole('button', { name: /(Check|Refresh) prices/ }).click();
 
     const progress = page.locator('.price-progress');
+
     await expect(progress).toContainText('Checking prices… 0 of 12 games');
     await expect(progress.getByRole('progressbar', { name: 'Price check progress' })).toBeVisible();
     await expect(progress).toContainText('Checking prices… 10 of 12 games');
@@ -268,14 +286,17 @@ test('All Games sorts by column, and collections can be removed', async ({ page 
 
     // Click the Rating header: highest first. Click again: lowest first.
     const header = page.getByRole('columnheader', { name: 'Sort by Rating' });
+
     await page.getByRole('button', { name: 'Sort by Rating' }).click();
     await expect(header).toHaveAttribute('aria-sort', 'descending');
     await expect(page.getByText('Sorted by rating, highest first')).toBeVisible();
     const desc = await ratings();
+
     expect(desc).toEqual([...desc].sort((a, b) => b - a));
     await page.getByRole('button', { name: 'Sort by Rating' }).click();
     await expect(header).toHaveAttribute('aria-sort', 'ascending');
     const asc = await ratings();
+
     expect(asc).toEqual([...asc].sort((a, b) => a - b));
 
     // The toolbar menu offers columns that have no header, like play time.
@@ -285,12 +306,14 @@ test('All Games sorts by column, and collections can be removed', async ({ page 
 
     // Remove a test collection.
     const friend = uniqueProfile('remove');
+
     await openProfile(page, friend);
     await page.getByRole('button', { name: 'Import from BoardGameGeek' }).click();
     await expect(page.getByText('Imported 3 entries')).toBeVisible({ timeout: 30_000 });
     await page.getByRole('combobox', { name: 'Whose collection' }).click();
     await page.getByRole('option', { name: `Remove ${friend}’s collection…` }).click();
     const dialog = page.getByRole('alertdialog');
+
     await expect(dialog).toContainText(`Remove ${friend}’s collection?`);
     await dialog.getByRole('button', { name: 'Remove collection' }).click();
     await expect(page.getByText(`Removed ${friend}’s collection.`)).toBeVisible();

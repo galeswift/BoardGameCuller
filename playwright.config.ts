@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 const APP_PORT = 3100;
+
 export const APP_PASSWORD = 'e2e-password';
 
 export default defineConfig({

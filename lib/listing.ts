@@ -21,7 +21,9 @@ export type ListingFacts = {
     similar: string[];
     condition: Condition;
 };
+
 export type Review = { subject: string; text: string };
+
 export type BggDetails = {
     year?: string;
     description: string;
@@ -30,6 +32,7 @@ export type BggDetails = {
     comments: { rating: number | null; text: string }[];
     reviews?: Review[];
 };
+
 export type ListingCopy = { intro: string; appeal: string; source: 'ai' | 'template'; year?: string };
 
 export { decodeEntities } from './text';
@@ -82,103 +85,158 @@ const COMMON = new Set([
     'one',
     'more',
 ]);
+
 /** Rough check that a review is in English: everyday English words make up a fair share of it. */
 export function looksEnglish(text: string)
 {
     const words = text.toLowerCase().match(/[a-z']+/g) ?? [];
-    return words.length >= 40 && words.filter(w => COMMON.has(w)).length / words.length >= 0.15;
+
+    return words.length >= 40 && words.filter(word => COMMON.has(word)).length / words.length >= 0.15;
 }
 
 const COMMENTS_PER_PAGE = 100;
+
 export async function fetchBggDetails(ids: string[]): Promise<Map<string, BggDetails>>
 {
     const out = new Map<string, BggDetails>();
-    for (let i = 0; i < ids.length; i += THING_BATCH)
+
+    for (let index = 0; index < ids.length; index += THING_BATCH)
     {
-        if (i) await sleep(REQUEST_GAP_MS);
-        const doc = await bggXml(`thing?id=${ids.slice(i, i + THING_BATCH).join(',')}&comments=1&pagesize=${COMMENTS_PER_PAGE}`);
+        if (index)
+        {
+            await sleep(REQUEST_GAP_MS);
+        }
+
+        const doc = await bggXml(`thing?id=${ids.slice(index, index + THING_BATCH).join(',')}&comments=1&pagesize=${COMMENTS_PER_PAGE}`);
+
         for (const item of doc.items?.item || [])
         {
             const links: Node[] = item.link || [];
             const comments = ((item.comments?.comment || []) as Node[])
-                .map(c => ({ rating: Number(c.rating) > 0 ? Number(c.rating) : null, text: decodeEntities(String(c.value ?? '')) }))
-                .filter(c => c.text.length >= 40)
-                .map(c => ({ ...c, text: c.text.slice(0, 400) }));
+                .map(comment => ({
+                    rating: Number(comment.rating) > 0 ? Number(comment.rating) : null,
+                    text: decodeEntities(String(comment.value ?? '')),
+                }))
+                .filter(comment => comment.text.length >= 40)
+                .map(comment => ({ ...comment, text: comment.text.slice(0, 400) }));
+
             out.set(String(item.id), {
                 year: item.yearpublished?.value && item.yearpublished.value !== '0' ? String(item.yearpublished.value) : undefined,
                 description: decodeEntities(
                     typeof item.description === 'string' ? item.description : String(item.description?.['#text'] ?? '')
                 ),
-                categories: links.filter(l => l.type === 'boardgamecategory').map(l => String(l.value)),
-                mechanics: links.filter(l => l.type === 'boardgamemechanic').map(l => String(l.value)),
+                categories: links.filter(link => link.type === 'boardgamecategory').map(link => String(link.value)),
+                mechanics: links.filter(link => link.type === 'boardgamemechanic').map(link => String(link.value)),
                 comments,
             });
         }
     }
+
     return out;
 }
 
 export const REVIEWS_PER_GAME = 3;
-const REVIEW_CHARS = 1500,
-    THREADS_TO_SCAN = 10;
+const REVIEW_CHARS = 1500;
+const THREADS_TO_SCAN = 10;
 
 /** The most recent English written reviews from a game's Reviews forum (the opening post of each thread). */
 export async function fetchReviews(id: string): Promise<Review[]>
 {
     const forums = await bggXml(`forumlist?id=${id}&type=thing`);
-    const forum = ((forums.forums?.forum || []) as Node[]).find(f => f.title === 'Reviews' && Number(f.numthreads) > 0);
-    if (!forum) return [];
+    const forum = ((forums.forums?.forum || []) as Node[]).find(
+        candidate => candidate.title === 'Reviews' && Number(candidate.numthreads) > 0
+    );
+
+    if (!forum)
+    {
+        return [];
+    }
+
     await sleep(REQUEST_GAP_MS);
     const threads = ((await bggXml(`forum?id=${forum.id}`)).forum?.threads?.thread || []) as Node[];
     const reviews: Review[] = [];
-    for (const t of threads.slice(0, THREADS_TO_SCAN))
+
+    for (const thread of threads.slice(0, THREADS_TO_SCAN))
     {
-        if (reviews.length >= REVIEWS_PER_GAME) break;
+        if (reviews.length >= REVIEWS_PER_GAME)
+        {
+            break;
+        }
+
         await sleep(REQUEST_GAP_MS);
-        const article = ((await bggXml(`thread?id=${t.id}&count=1`)).thread?.articles?.article || [])[0] as Node | undefined;
+        const article = ((await bggXml(`thread?id=${thread.id}&count=1`)).thread?.articles?.article || [])[0] as Node | undefined;
         const text = postText(String(article?.body ?? ''));
+
         // Skip link-only posts ("watch my video review") and other languages.
-        if (text.length < 300 || !looksEnglish(text)) continue;
-        reviews.push({ subject: decodeEntities(String(t.subject ?? '')), text: text.slice(0, REVIEW_CHARS) });
+        if (text.length < 300 || !looksEnglish(text))
+        {
+            continue;
+        }
+
+        reviews.push({ subject: decodeEntities(String(thread.subject ?? '')), text: text.slice(0, REVIEW_CHARS) });
     }
+
     return reviews;
 }
 
-const players = (f: ListingFacts) =>
-    f.minPlayers && f.maxPlayers ? (f.minPlayers === f.maxPlayers ? `${f.minPlayers}` : `${f.minPlayers}–${f.maxPlayers}`) : null;
-export function weightWord(w: number | null)
+const players = (facts: ListingFacts) =>
+    facts.minPlayers && facts.maxPlayers
+        ? facts.minPlayers === facts.maxPlayers
+            ? `${facts.minPlayers}`
+            : `${facts.minPlayers}–${facts.maxPlayers}`
+        : null;
+
+export function weightWord(weight: number | null)
 {
-    return w == null ? '' : w < 1.8 ? 'light' : w < 2.6 ? 'medium-light' : w < 3.3 ? 'medium-weight' : w < 4 ? 'medium-heavy' : 'heavy';
+    return weight == null
+        ? ''
+        : weight < 1.8
+            ? 'light'
+            : weight < 2.6
+                ? 'medium-light'
+                : weight < 3.3
+                    ? 'medium-weight'
+                    : weight < 4
+                        ? 'medium-heavy'
+                        : 'heavy';
 }
-const list = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} or ${xs.at(-1)}`);
-const sentences = (s: string, max: number) =>
+
+const list = (items: string[]) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} or ${items.at(-1)}`);
+const sentences = (text: string, max: number) =>
 {
     let out = '';
-    for (const part of s.replace(/\n+/g, ' ').match(/[^.!?]+[.!?]+(\s|$)/g) ?? [])
+
+    for (const part of text.replace(/\n+/g, ' ').match(/[^.!?]+[.!?]+(\s|$)/g) ?? [])
     {
-        if ((out + part).length > max) break;
+        if ((out + part).length > max)
+        {
+            break;
+        }
+
         out += part;
     }
+
     return out.trim();
 };
 
-export function templateCopy(f: ListingFacts, d?: BggDetails): Omit<ListingCopy, 'source'>
+export function templateCopy(facts: ListingFacts, details?: BggDetails): Omit<ListingCopy, 'source'>
 {
-    const p = players(f),
-        weight = weightWord(f.complexity);
+    const playerText = players(facts);
+    const weight = weightWord(facts.complexity);
     const basics = [
-        `${f.name}${d?.year ? ` (${d.year})` : ''} is a ${weight ? `${weight} ` : ''}board game`,
-        p ? ` for ${p} players` : '',
-        f.minutes ? ` that plays in about ${f.minutes} minutes` : '',
+        `${facts.name}${details?.year ? ` (${details.year})` : ''} is a ${weight ? `${weight} ` : ''}board game`,
+        playerText ? ` for ${playerText} players` : '',
+        facts.minutes ? ` that plays in about ${facts.minutes} minutes` : '',
         '.',
     ].join('');
-    const blurb = d?.description ? sentences(d.description, 360) : '';
-    const fans = f.similar.length
-        ? `If you liked ${list(f.similar.slice(0, 3))}, you'll probably like this one too.`
-        : d?.mechanics.length
-            ? `Worth a look if you like ${list(d.mechanics.slice(0, 2).map(m => m.toLowerCase()))}.`
+    const blurb = details?.description ? sentences(details.description, 360) : '';
+    const fans = facts.similar.length
+        ? `If you liked ${list(facts.similar.slice(0, 3))}, you'll probably like this one too.`
+        : details?.mechanics.length
+            ? `Worth a look if you like ${list(details.mechanics.slice(0, 2).map(mechanic => mechanic.toLowerCase()))}.`
             : '';
-    return { intro: [basics, blurb].filter(Boolean).join(' '), appeal: fans, year: d?.year };
+
+    return { intro: [basics, blurb].filter(Boolean).join(' '), appeal: fans, year: details?.year };
 }
 
 // The voice is the seller's own: the example below is how they write.
@@ -204,49 +262,56 @@ appeal: at most 40 words. 1–2 sentences on what people like about it and who'd
 export function plainPunctuation(text: string)
 {
     return text
-        .replace(/\s*;\s+(\S)/g, (_, c: string) => `. ${c.toUpperCase()}`)
+        .replace(/\s*;\s+(\S)/g, (_, letter: string) => `. ${letter.toUpperCase()}`)
         .replace(/\s*[—–]\s*(?=[a-z])/gi, ', ')
         .replace(/!/g, '.')
         .replace(/\s{2,}/g, ' ')
         .trim();
 }
 
-export function aiPrompt(f: ListingFacts, d?: BggDetails)
+export function aiPrompt(game: ListingFacts, details?: BggDetails)
 {
     const facts = [
-        `Game: ${f.name}${d?.year ? ` (${d.year})` : ''}`,
-        f.publisher && `Publisher: ${f.publisher}`,
-        players(f) && `Players: ${players(f)}${f.bestPlayers ? ` (best with ${f.bestPlayers})` : ''}`,
-        f.minutes && `Play time: about ${f.minutes} minutes`,
-        f.complexity && `BGG weight: ${f.complexity.toFixed(2)}/5 (${weightWord(f.complexity)})`,
-        d?.categories.length && `Categories: ${d.categories.slice(0, 6).join(', ')}`,
-        d?.mechanics.length && `Mechanics: ${d.mechanics.slice(0, 8).join(', ')}`,
-        f.similar.length && `Similar games: ${f.similar.slice(0, 3).join(', ')}`,
+        `Game: ${game.name}${details?.year ? ` (${details.year})` : ''}`,
+        game.publisher && `Publisher: ${game.publisher}`,
+        players(game) && `Players: ${players(game)}${game.bestPlayers ? ` (best with ${game.bestPlayers})` : ''}`,
+        game.minutes && `Play time: about ${game.minutes} minutes`,
+        game.complexity && `BGG weight: ${game.complexity.toFixed(2)}/5 (${weightWord(game.complexity)})`,
+        details?.categories.length && `Categories: ${details.categories.slice(0, 6).join(', ')}`,
+        details?.mechanics.length && `Mechanics: ${details.mechanics.slice(0, 8).join(', ')}`,
+        game.similar.length && `Similar games: ${game.similar.slice(0, 3).join(', ')}`,
     ]
         .filter(Boolean)
         .join('\n');
-    const blurb = d?.description ? `\n\nPublisher description:\n${d.description.slice(0, 1500)}` : '';
-    const reviews = d?.reviews?.length
-        ? `\n\nPlayer reviews (summarise what reviewers enjoy, don't quote):\n${d.reviews.map(r => `### ${r.subject}\n${r.text}`).join('\n\n')}`
+    const blurb = details?.description ? `\n\nPublisher description:\n${details.description.slice(0, 1500)}` : '';
+    const reviews = details?.reviews?.length
+        ? `\n\nPlayer reviews (summarise what reviewers enjoy, don't quote):\n${details.reviews.map(review => `### ${review.subject}\n${review.text}`).join('\n\n')}`
         : '';
     // Lean on players who liked it, and on the comments with the most to say.
-    const liked = d?.comments.filter(c => c.rating != null && c.rating >= 7) ?? [];
-    const picked = [...(liked.length >= 3 ? liked : (d?.comments ?? []))].sort((a, b) => b.text.length - a.text.length).slice(0, 20);
-    const comments = picked.length ? `\n\nPlayer comments (summarise, don't quote):\n${picked.map(c => `- ${c.text}`).join('\n')}` : '';
-    const source = mayMentionBgg(f.id)
+    const liked = details?.comments.filter(comment => comment.rating != null && comment.rating >= 7) ?? [];
+    const picked = [...(liked.length >= 3 ? liked : (details?.comments ?? []))].sort((a, b) => b.text.length - a.text.length).slice(0, 20);
+    const comments = picked.length
+        ? `\n\nPlayer comments (summarise, don't quote):\n${picked.map(comment => `- ${comment.text}`).join('\n')}`
+        : '';
+    const source = mayMentionBgg(game.id)
         ? 'You may mention BoardGameGeek once, plainly (like "people on BoardGameGeek like…"), if it reads naturally.'
         : "Don't mention BoardGameGeek or where the opinions come from. Just say what players enjoy.";
+
     return `${facts}${blurb}${reviews}${comments}\n\n${source}`;
 }
 
 /** Only about 1 listing in 4 names BoardGameGeek, so the friendly touch doesn't become a formula. Stable per game. */
 export const mayMentionBgg = (id: string) => Number(id) % 4 === 0;
 
-export async function aiCopy(f: ListingFacts, d?: BggDetails): Promise<{ intro: string; appeal: string }>
+export async function aiCopy(facts: ListingFacts, details?: BggDetails): Promise<{ intro: string; appeal: string }>
 {
-    const out = (await openaiJson(SYSTEM, aiPrompt(f, d), 2500)) as { intro?: unknown; appeal?: unknown };
+    const out = (await openaiJson(SYSTEM, aiPrompt(facts, details), 2500)) as { intro?: unknown; appeal?: unknown };
+
     if (typeof out.intro !== 'string' || typeof out.appeal !== 'string' || !out.intro.trim())
+    {
         throw new Error('OpenAI returned an unexpected format.');
+    }
+
     return { intro: plainPunctuation(out.intro).slice(0, 1200), appeal: plainPunctuation(out.appeal).slice(0, 1200) };
 }
 
@@ -269,68 +334,82 @@ export async function writeListings(
     { cachedReviews = new Map<string, Review[]>() }: { cachedReviews?: Map<string, Review[]> } = {}
 ): Promise<ListingResult>
 {
-    let details = new Map<string, BggDetails>(),
-        warning: string | undefined;
+    let details = new Map<string, BggDetails>();
+    let warning: string | undefined;
+
     try
     {
-        details = await fetchBggDetails(games.map(g => g.id));
+        details = await fetchBggDetails(games.map(facts => facts.id));
     }
-    catch (e)
+    catch (error)
     {
-        console.error('BGG details failed', e);
+        console.error('BGG details failed', error);
         warning = 'Couldn’t reach BoardGameGeek, so descriptions only use what the app already knows.';
     }
-    const ai = aiConfigured(),
-        fetchedReviews: Record<string, Review[]> = {};
+
+    const ai = aiConfigured();
+    const fetchedReviews: Record<string, Review[]> = {};
+
     // Reviews take several paced BGG requests per game, so only fetch them when they'll be used.
     if (ai && details.size)
     {
-        for (const g of games)
+        for (const facts of games)
         {
-            let reviews = cachedReviews.get(g.id);
+            let reviews = cachedReviews.get(facts.id);
+
             if (!reviews)
             {
                 await sleep(REQUEST_GAP_MS);
                 try
                 {
-                    reviews = fetchedReviews[g.id] = await fetchReviews(g.id);
+                    reviews = fetchedReviews[facts.id] = await fetchReviews(facts.id);
                 }
-                catch (e)
+                catch (error)
                 {
-                    console.error('BGG reviews failed', g.name, e);
+                    console.error('BGG reviews failed', facts.name, error);
                 }
             }
-            const d = details.get(g.id);
-            if (d && reviews) d.reviews = reviews;
+
+            const gameDetails = details.get(facts.id);
+
+            if (gameDetails && reviews)
+            {
+                gameDetails.reviews = reviews;
+            }
         }
     }
+
     const copies: Record<string, ListingCopy> = {};
     let next = 0;
+
     // A few AI requests at a time keeps a batch quick without tripping rate limits.
     await Promise.all(
         Array.from({ length: Math.min(3, games.length) }, async () =>
         {
             while (next < games.length)
             {
-                const f = games[next++],
-                    d = details.get(f.id),
-                    base = templateCopy(f, d);
+                const facts = games[next++];
+                const gameDetails = details.get(facts.id);
+                const base = templateCopy(facts, gameDetails);
                 let written: { intro: string; appeal: string } | null = null;
+
                 if (ai)
                 {
                     try
                     {
-                        written = await aiCopy(f, d);
+                        written = await aiCopy(facts, gameDetails);
                     }
-                    catch (e)
+                    catch (error)
                     {
-                        console.error('AI listing failed', f.name, e);
+                        console.error('AI listing failed', facts.name, error);
                         warning = 'Some descriptions use the template because the OpenAI request failed.';
                     }
                 }
-                copies[f.id] = written ? { ...base, ...written, source: 'ai' } : { ...base, source: 'template' };
+
+                copies[facts.id] = written ? { ...base, ...written, source: 'ai' } : { ...base, source: 'template' };
             }
         })
     );
+
     return { copies, ai, warning, fetchedReviews };
 }

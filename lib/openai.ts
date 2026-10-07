@@ -32,5 +32,6 @@ export async function openaiJson(system: string, user: string, maxTokens: number
     }
 
     const json = (await response.json()) as { choices?: { message?: { content?: string } }[] };
+
     return JSON.parse(json.choices?.[0]?.message?.content || '{}');
 }

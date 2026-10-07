@@ -44,8 +44,11 @@ let fetchMock: Mock<(url: string, init?: { headers: Record<string, string> }) =>
 async function run(previous = [] as ReturnType<typeof game>[])
 {
     const promise = fetchBggCollection('someone', previous);
-    promise.catch(() => {});
+
+    promise.catch(() =>
+    {});
     await vi.runAllTimersAsync();
+
     return promise;
 }
 
@@ -55,9 +58,21 @@ beforeEach(() =>
     vi.stubEnv('BGG_API_TOKEN', 'token-123');
     fetchMock = vi.fn(async (url: string) =>
     {
-        if (url.includes('excludesubtype=boardgameexpansion')) return xml(STANDALONE);
-        if (url.includes('subtype=boardgameexpansion')) return xml(EXPANSIONS);
-        if (url.includes('/thing?')) return xml(THINGS);
+        if (url.includes('excludesubtype=boardgameexpansion'))
+        {
+            return xml(STANDALONE);
+        }
+
+        if (url.includes('subtype=boardgameexpansion'))
+        {
+            return xml(EXPANSIONS);
+        }
+
+        if (url.includes('/thing?'))
+        {
+            return xml(THINGS);
+        }
+
         throw new Error(`unexpected ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock);
@@ -75,8 +90,10 @@ describe('fetchBggCollection', () =>
     it("maps owned games and expansions into the app's Game shape", async () =>
     {
         const games = await run();
-        expect(games.map(g => g.id)).toEqual(['100', '200', '300']);
+
+        expect(games.map(entry => entry.id)).toEqual(['100', '200', '300']);
         const [spirit, hanabi, branch] = games;
+
         expect(spirit).toMatchObject({
             name: 'Spirit Island',
             type: 'standalone',
@@ -107,9 +124,10 @@ describe('fetchBggCollection', () =>
     {
         await run();
         const [url, init] = fetchMock.mock.calls[0];
+
         expect(url).toContain('username=someone&own=1&stats=1');
         expect(init!.headers.Authorization).toBe('Bearer token-123');
-        expect(fetchMock.mock.calls.find(([u]) => u.includes('/thing?'))![0]).toContain('id=100,200,300&stats=1');
+        expect(fetchMock.mock.calls.find(([calledUrl]) => calledUrl.includes('/thing?'))![0]).toContain('id=100,200,300&stats=1');
     });
 
     it('keeps hand-edited classification from the previous import', async () =>
@@ -118,6 +136,7 @@ describe('fetchBggCollection', () =>
             game('100', { group: 'Heavy co-op', theme: 'Nature', mode: 'Solo / cooperative', mean: 3, minutes: 90, notes: 'favourite' }),
         ];
         const [spirit] = await run(previous);
+
         expect(spirit).toMatchObject({
             group: 'Heavy co-op',
             theme: 'Nature',
@@ -132,6 +151,7 @@ describe('fetchBggCollection', () =>
     {
         let calls = 0;
         const base = fetchMock.getMockImplementation()!;
+
         fetchMock.mockImplementation(async (url: string) => (url.includes('excludesubtype') && calls++ < 2 ? xml('', 202) : base(url)));
         expect(await run()).toHaveLength(3);
         expect(calls).toBe(3);
@@ -140,13 +160,14 @@ describe('fetchBggCollection', () =>
     it('batches thing lookups 20 ids at a time', async () =>
     {
         const many = collectionXml(
-            Array.from({ length: 45 }, (_, i) => collectionItem(String(i + 1), `G${i}`, 'boardgame', 'N/A', '6')).join('')
+            Array.from({ length: 45 }, (_, index) => collectionItem(String(index + 1), `G${index}`, 'boardgame', 'N/A', '6')).join('')
         );
+
         fetchMock.mockImplementation(async (url: string) =>
             xml(url.includes('excludesubtype') ? many : url.includes('subtype=') ? collectionXml('') : '<items></items>')
         );
         expect(await run()).toHaveLength(45);
-        expect(fetchMock.mock.calls.filter(([u]) => u.includes('/thing?'))).toHaveLength(3);
+        expect(fetchMock.mock.calls.filter(([url]) => url.includes('/thing?'))).toHaveLength(3);
     });
 
     it('reports an unknown username clearly', async () =>

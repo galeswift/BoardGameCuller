@@ -24,16 +24,23 @@ const ENTITIES: Record<string, string> = {
 export function decodeEntities(text: string): string
 {
     let out = text;
+
     // Twice, to undo double encoding.
     for (let pass = 0; pass < 2; pass++)
     {
         out = out.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (match, entity: string) =>
         {
-            if (entity[0] !== '#') return ENTITIES[entity.toLowerCase()] ?? match;
+            if (entity[0] !== '#')
+            {
+                return ENTITIES[entity.toLowerCase()] ?? match;
+            }
+
             const hex = entity[1] === 'x' || entity[1] === 'X';
+
             return String.fromCodePoint(hex ? parseInt(entity.slice(2), 16) : Number(entity.slice(1)));
         });
     }
+
     return out
         .replace(/\r/g, '')
         .replace(/[ \t]+/g, ' ')

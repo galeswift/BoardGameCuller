@@ -23,6 +23,7 @@ describe('defaultTitle', () =>
     it('drops the publisher, then the suffix, to stay within 80', () =>
     {
         const long = 'A'.repeat(65);
+
         expect(defaultTitle(long, 'Very Long Publisher Name')).toBe(`${long} Board Game`);
         expect(defaultTitle('B'.repeat(90), '')).toHaveLength(80);
     });
@@ -33,6 +34,7 @@ describe('listingHtml', () =>
     it('builds paragraphs, facts and a condition section, escaping text', () =>
     {
         const html = listingHtml(draft({ name: 'Cards & <Dice>', notes: 'Sleeved.\nAll there.' }));
+
         expect(html).toContain('<h2>Cards &amp; &lt;Dice&gt;</h2>');
         expect(html).toContain('<p>Trade, build, settle.</p><p>Great with 4.</p>');
         expect(html).toContain('<ul><li>Players: 3–4</li><li>Play time: about 90 minutes</li></ul>');
@@ -69,6 +71,7 @@ describe('draftsCsv', () =>
     it('maps unpunched and near-mint copies to Used with an explanation', () =>
     {
         const row = draftsCsv([draft({ condition: 'Unpunched' })]).split('\r\n')[2];
+
         expect(row).toContain(',3000,');
         expect(row).toContain('Opened but never played');
     });

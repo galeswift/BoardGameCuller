@@ -6,10 +6,13 @@ import { PGlite } from '@electric-sql/pglite';
 import { PGLiteSocketServer } from '@electric-sql/pglite-socket';
 
 export const DB_PORT = 54329;
+
 export const BGG_PORT = 3199;
+
 export const BGG_TOKEN = 'e2e-token';
 
 const db = await PGlite.create();
+
 await new PGLiteSocketServer({ db, host: '127.0.0.1', port: DB_PORT, maxConnections: 20 }).start();
 
 const item = (id, name, subtype, rating, average) =>
@@ -41,11 +44,16 @@ createServer((req, res) =>
 {
     const url = new URL(req.url, `http://${req.headers.host}`);
     const send = (status, body = '') => res.writeHead(status, { 'content-type': 'text/xml' }).end(body);
-    if (url.pathname === '/health') return send(200, 'ok');
+
+    if (url.pathname === '/health')
+    {
+        return send(200, 'ok');
+    }
+
     // Fake BoardGamePrices.com: store prices for Test Tiles.
     if (url.pathname === '/api/info')
     {
-        const items = url.searchParams
+        const storeItems = url.searchParams
             .get('eid')
             .split(',')
             .filter(id => id === '900002')
@@ -59,17 +67,35 @@ createServer((req, res) =>
                     { product: 20, shipping: '5.00', shipping_known: true, stock: 'N' },
                 ],
             }));
-        return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ currency: 'USD', items }));
+
+        return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify({ currency: 'USD', items: storeItems }));
     }
-    if (req.headers.authorization !== `Bearer ${BGG_TOKEN}`) return send(401);
+
+    if (req.headers.authorization !== `Bearer ${BGG_TOKEN}`)
+    {
+        return send(401);
+    }
+
     if (url.pathname === '/xmlapi2/collection')
     {
         if (url.searchParams.get('username') === 'nobody')
+        {
             return send(200, '<errors><error><message>Invalid username specified</message></error></errors>');
+        }
+
         return send(200, url.searchParams.get('subtype') === 'boardgameexpansion' ? EXPANSIONS : STANDALONE);
     }
+
     // Price lookups are slowed down a little so the progress bar can be observed.
-    if (url.pathname === '/xmlapi2/thing' && url.searchParams.has('marketplace')) return setTimeout(() => send(200, THINGS), 300);
-    if (url.pathname === '/xmlapi2/thing') return send(200, THINGS);
+    if (url.pathname === '/xmlapi2/thing' && url.searchParams.has('marketplace'))
+    {
+        return setTimeout(() => send(200, THINGS), 300);
+    }
+
+    if (url.pathname === '/xmlapi2/thing')
+    {
+        return send(200, THINGS);
+    }
+
     send(404);
 }).listen(BGG_PORT, '127.0.0.1', () => console.log(`e2e services ready (db :${DB_PORT}, bgg :${BGG_PORT})`));

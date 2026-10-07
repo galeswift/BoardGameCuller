@@ -18,9 +18,12 @@ const HEADER = [
     'Description',
     'Format',
 ];
+
 export const TITLE_MAX = 80;
+
 /** Suggested prices undercut the market estimate by this much, to sell quickly. */
 export const UNDERCUT = 0.1;
+
 export const undercutPrice = (marketMedian: number) => Math.round(marketMedian * (1 - UNDERCUT) * 100) / 100;
 
 /** eBay condition per trade-in condition. Unpunched is listed as Used with an explanatory note. */
@@ -46,47 +49,49 @@ export function defaultTitle(name: string, publisher: string)
 {
     const base = `${name} Board Game`;
     const withPublisher = publisher ? `${base} - ${publisher}` : base;
+
     return (withPublisher.length <= TITLE_MAX ? withPublisher : base.length <= TITLE_MAX ? base : name).slice(0, TITLE_MAX);
 }
 
-const html = (s: string) => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
-const paragraphs = (s: string) =>
-    s
+const html = (text: string) => text.replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char]!);
+const paragraphs = (text: string) =>
+    text
         .split(/\n\s*\n/)
-        .map(p => p.trim())
+        .map(paragraph => paragraph.trim())
         .filter(Boolean)
-        .map(p => `<p>${html(p).replace(/\n/g, '<br>')}</p>`)
+        .map(paragraph => `<p>${html(paragraph).replace(/\n/g, '<br>')}</p>`)
         .join('');
 
-export function listingHtml(d: EbayDraft)
+export function listingHtml(draft: EbayDraft)
 {
     return [
-        `<h2>${html(d.name)}</h2>`,
-        paragraphs(d.description),
-        d.facts.length ? `<ul>${d.facts.map(f => `<li>${html(f)}</li>`).join('')}</ul>` : '',
-        `<h3>Condition</h3><p>${html(EBAY_CONDITION[d.condition].text)}</p>`,
-        paragraphs(d.notes),
+        `<h2>${html(draft.name)}</h2>`,
+        paragraphs(draft.description),
+        draft.facts.length ? `<ul>${draft.facts.map(fact => `<li>${html(fact)}</li>`).join('')}</ul>` : '',
+        `<h3>Condition</h3><p>${html(EBAY_CONDITION[draft.condition].text)}</p>`,
+        paragraphs(draft.notes),
     ].join('');
 }
 
-const csvCell = (v: string) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
+const csvCell = (value: string) => (/[",\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
 
 export function draftsCsv(drafts: EbayDraft[])
 {
-    const rows = drafts.map(d => [
+    const rows = drafts.map(draft => [
         'Draft',
-        `BGG-${d.id}`,
+        `BGG-${draft.id}`,
         EBAY_BOARD_GAMES_CATEGORY,
-        d.title.slice(0, TITLE_MAX),
+        draft.title.slice(0, TITLE_MAX),
         '',
-        d.price != null && d.price > 0 ? d.price.toFixed(2) : '',
+        draft.price != null && draft.price > 0 ? draft.price.toFixed(2) : '',
         '1',
         '',
-        EBAY_CONDITION[d.condition].id,
+        EBAY_CONDITION[draft.condition].id,
         // One line per listing keeps the upload parser happy.
-        listingHtml(d).replace(/[\r\n]+/g, ' '),
+        listingHtml(draft).replace(/[\r\n]+/g, ' '),
         'FixedPrice',
     ]);
     const pad = (cells: string[]) => [...cells, ...Array(HEADER.length - cells.length).fill('')];
-    return [pad(INFO), HEADER, ...rows].map(r => r.map(csvCell).join(',')).join('\r\n') + '\r\n';
+
+    return [pad(INFO), HEADER, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
 }

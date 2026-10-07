@@ -27,6 +27,7 @@ export type GroupInput = { game: Game; details?: ThingDetails };
 export function vocabulary(games: Game[]): string[]
 {
     const byGroup = new Map<string, string[]>();
+
     for (const game of games)
     {
         if (game.type === 'standalone' && game.group)
@@ -34,6 +35,7 @@ export function vocabulary(games: Game[]): string[]
             byGroup.set(game.group, [...(byGroup.get(game.group) ?? []), game.name]);
         }
     }
+
     return [...byGroup]
         .sort((a, b) => b[1].length - a[1].length)
         .map(([group, names]) => `- ${group} (${names.length} games, e.g. ${names.slice(0, 3).join('; ')})`);
@@ -43,6 +45,7 @@ export function vocabulary(games: Game[]): string[]
 function describeGame({ game, details }: GroupInput): string
 {
     const players = game.minPlayers && game.maxPlayers ? `${game.minPlayers}-${game.maxPlayers}p` : '';
+
     return [
         game.id,
         game.name,
@@ -60,6 +63,7 @@ function describeGame({ game, details }: GroupInput): string
 export function groupPrompt(batch: GroupInput[], existing: string[]): string
 {
     const known = existing.length ? `Existing groups:\n${existing.join('\n')}` : 'Existing groups: none yet.';
+
     return `${known}\n\nGames to group (id | name | details):\n${batch.map(describeGame).join('\n')}`;
 }
 
@@ -74,10 +78,19 @@ async function requestGroups(batch: GroupInput[], existing: string[]): Promise<R
 
     for (const [id, group] of Object.entries(reply.groups ?? {}))
     {
-        if (!asked.has(id) || typeof group !== 'string') continue;
+        if (!asked.has(id) || typeof group !== 'string')
+        {
+            continue;
+        }
+
         const clean = group.replace(/\s+/g, ' ').trim().slice(0, GROUP_MAX_LENGTH);
-        if (clean) groups[id] = clean;
+
+        if (clean)
+        {
+            groups[id] = clean;
+        }
     }
+
     return groups;
 }
 
@@ -86,10 +99,13 @@ export async function assignGroups(batch: GroupInput[], existing: string[]): Pro
 {
     const groups = await requestGroups(batch, existing);
     const missed = batch.filter(input => !groups[input.game.id]);
+
     if (missed.length)
     {
         const newGroups = [...new Set(Object.values(groups))].map(group => `- ${group}`);
+
         Object.assign(groups, await requestGroups(missed, [...existing, ...newGroups]));
     }
+
     return groups;
 }

@@ -1,4 +1,5 @@
 import { SESSION_COOKIE } from '../../auth';
+
 export const dynamic = 'force-dynamic';
 
 export async function POST()

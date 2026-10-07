@@ -49,7 +49,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { NKG_TEMPLATE_PATH, fillTradeInTemplate } from '@/lib/nkg';
 import { EbayPanel } from './ebay-panel';
-import type { PriceEstimate, PriceQuote, PriceSource } from '@/lib/prices';
+import type { PriceEstimate, PriceQuote, PriceSource, SourceEstimate } from '@/lib/prices';
 import { Progress } from '@/components/ui/progress';
 import { GROUP_BATCH } from '@/lib/groups';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -71,8 +71,10 @@ import {
     type Settings,
     type Scored,
 } from '@/lib/model';
-type Operation = { payload: unknown; resolve: () => void; reject: (e: Error) => void };
+
+type Operation = { payload: unknown; resolve: () => void; reject: (error: Error) => void };
 const boxLabels = ['Small', 'Standard', 'Large', 'Oversized'];
+
 function Choice({
     value,
     onChange,
@@ -80,7 +82,7 @@ function Choice({
     label,
 }: {
     value: string;
-    onChange: (v: string) => void;
+    onChange: (newValue: string) => void;
     disabled?: boolean;
     label: string;
 })
@@ -92,15 +94,16 @@ function Choice({
             </SelectTrigger>
             <SelectContent>
                 <SelectItem value="unknown">Size unknown</SelectItem>
-                {boxLabels.map((t, i) => (
-                    <SelectItem key={t} value={String(i)}>
-                        {t}
+                {boxLabels.map((boxLabel, index) => (
+                    <SelectItem key={boxLabel} value={String(index)}>
+                        {boxLabel}
                     </SelectItem>
                 ))}
             </SelectContent>
         </Select>
     );
 }
+
 const factorIcons: Record<FactorKind, LucideIcon> = {
     mustKeep: LockKeyhole,
     representative: Crown,
@@ -113,32 +116,34 @@ const factorIcons: Record<FactorKind, LucideIcon> = {
     box: Box,
     cutoff: Scissors,
 };
+
 // One chip per scoring factor; hover or focus for the details.
 function FactorChips({ factors, onOpen }: { factors: Factor[]; onOpen: (id: string) => void })
 {
     return (
         <div className="factors">
-            {factors.map(f =>
+            {factors.map(factor =>
             {
-                const Icon = factorIcons[f.kind];
+                const Icon = factorIcons[factor.kind];
+
                 return (
-                    <Tooltip key={f.kind}>
+                    <Tooltip key={factor.kind}>
                         <TooltipTrigger asChild>
                             <button
                                 type="button"
                                 className="factor"
-                                data-kind={f.kind}
-                                aria-label={`${f.title}. ${f.lines.join(' ')}`}
-                                onClick={f.alternativeId ? () => onOpen(f.alternativeId!) : undefined}
+                                data-kind={factor.kind}
+                                aria-label={`${factor.title}. ${factor.lines.join(' ')}`}
+                                onClick={factor.alternativeId ? () => onOpen(factor.alternativeId!) : undefined}
                             >
                                 <Icon size={15} aria-hidden />
-                                {f.badge && <span>{f.badge}</span>}
+                                {factor.badge && <span>{factor.badge}</span>}
                             </button>
                         </TooltipTrigger>
                         <TooltipContent className="factor-tip" side="top">
-                            <strong>{f.title}</strong>
-                            {f.lines.map(l => (
-                                <span key={l}>{l}</span>
+                            <strong>{factor.title}</strong>
+                            {factor.lines.map(line => (
+                                <span key={line}>{line}</span>
                             ))}
                         </TooltipContent>
                     </Tooltip>
@@ -147,62 +152,83 @@ function FactorChips({ factors, onOpen }: { factors: Factor[]; onOpen: (id: stri
         </div>
     );
 }
-const usd = (n: number) => '$' + Math.round(n);
-const month = (d: string) => new Date(d + 'T00:00:00Z').toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' });
+
+const usd = (amount: number) => '$' + Math.round(amount);
+const month = (isoDate: string) =>
+    new Date(isoDate + 'T00:00:00Z').toLocaleDateString(undefined, { month: 'short', year: 'numeric', timeZone: 'UTC' });
 // Prices are looked up a batch at a time so the page can show progress.
-const PRICE_BATCH = 10,
-    PRICE_STALE_MS = 14 * 24 * 3600 * 1000;
+const PRICE_BATCH = 10;
+const PRICE_STALE_MS = 14 * 24 * 3600 * 1000;
 const SOURCE_NAMES: Record<PriceSource, string> = { bgg: 'BGG GeekMarket', bgp: 'BoardGamePrices.com' };
-function PriceLine({ label, e, checkedAt }: { label: 'Used' | 'New'; e: PriceEstimate | null; checkedAt: string })
+
+/** One line of the tooltip per price source, e.g. "BGG GeekMarket: $25 median of 3 listings ($20–$30)". */
+function describeSource(source: SourceEstimate)
 {
-    const lines = e
+    const kind = source.source === 'bgp' ? 'store price' : 'listing';
+    const plural = source.count === 1 ? '' : 's';
+    const shipping = source.shipping != null ? `, shipping ~${usd(source.shipping)}` : '';
+    const listed = source.since ? `, listed ${month(source.since)} – ${month(source.until!)}` : '';
+
+    return `${SOURCE_NAMES[source.source]}: ${usd(source.median)} median of ${source.count} ${kind}${plural} (${usd(source.low)}–${usd(source.high)})${shipping}${listed}`;
+}
+
+function PriceLine({ label, estimate, checkedAt }: { label: 'Used' | 'New'; estimate: PriceEstimate | null; checkedAt: string })
+{
+    const lines = estimate
         ? [
-            ...e.sources.map(
-                s =>
-                    `${SOURCE_NAMES[s.source]}: ${usd(s.median)} median of ${s.count} ${s.source === 'bgp' ? 'store price' : 'listing'}${s.count === 1 ? '' : 's'} (${usd(s.low)}–${usd(s.high)})${s.shipping != null ? `, shipping ~${usd(s.shipping)}` : ''}${s.since ? `, listed ${month(s.since)} – ${month(s.until!)}` : ''}`
-            ),
-            ...(e.sources.length > 1 ? [`Average of ${e.sources.length} sources.`] : []),
-            e.shipping != null ? `Shipping is extra: typically ~${usd(e.shipping)}.` : 'Shipping is not included.',
+            ...estimate.sources.map(describeSource),
+            ...(estimate.sources.length > 1 ? [`Average of ${estimate.sources.length} sources.`] : []),
+            estimate.shipping != null ? `Shipping is extra: typically ~${usd(estimate.shipping)}.` : 'Shipping is not included.',
             'Asking prices in USD, not completed sales.',
         ]
         : ['No USD listings found.'];
+
     lines.push(`Checked ${new Date(checkedAt).toLocaleDateString()}`);
-    const store = e?.sources.find(s => s.source === 'bgp' && s.url)?.url;
-    if (store) lines.push('Click to see store prices on BoardGamePrices.com.');
-    const value = e ? usd(e.median) : 'unknown';
+
+    // Store prices link back to BoardGamePrices.com, as their terms ask.
+    const storeUrl = estimate?.sources.find(source => source.source === 'bgp' && source.url)?.url;
+
+    if (storeUrl)
+    {
+        lines.push('Click to see store prices on BoardGamePrices.com.');
+    }
+
+    const priceText = estimate ? usd(estimate.median) : 'unknown';
+
     return (
         <Tooltip>
             <TooltipTrigger asChild>
                 <button
                     type="button"
-                    className={`price-line${store ? ' linked' : ''}`}
-                    aria-label={`${label} value ${value}. ${lines.join(' ')}`}
-                    onClick={store ? () => window.open(store, '_blank', 'noopener') : undefined}
+                    className={`price-line${storeUrl ? ' linked' : ''}`}
+                    aria-label={`${label} value ${priceText}. ${lines.join(' ')}`}
+                    onClick={storeUrl ? () => window.open(storeUrl, '_blank', 'noopener') : undefined}
                 >
                     <span>{label}</span>
-                    <strong className={e ? undefined : 'none'}>{e ? usd(e.median) : '—'}</strong>
+                    <strong className={estimate ? undefined : 'none'}>{estimate ? usd(estimate.median) : '—'}</strong>
                 </button>
             </TooltipTrigger>
             <TooltipContent className="factor-tip" side="top">
                 <strong>
-                    {label} ≈ {value}
-                    {e?.shipping != null ? ` + ~${usd(e.shipping)} shipping` : ''}
+                    {label} ≈ {priceText}
+                    {estimate?.shipping != null ? ` + ~${usd(estimate.shipping)} shipping` : ''}
                 </strong>
-                {lines.map(l => (
-                    <span key={l}>{l}</span>
+                {lines.map(line => (
+                    <span key={line}>{line}</span>
                 ))}
             </TooltipContent>
         </Tooltip>
     );
 }
-function PriceCell({ q }: { q?: PriceQuote })
+
+function PriceCell({ quote }: { quote?: PriceQuote })
 {
     return (
         <div className="price-value">
-            {q ? (
+            {quote ? (
                 <>
-                    <PriceLine label="Used" e={q.used} checkedAt={q.checkedAt} />
-                    <PriceLine label="New" e={q.new} checkedAt={q.checkedAt} />
+                    <PriceLine label="Used" estimate={quote.used} checkedAt={quote.checkedAt} />
+                    <PriceLine label="New" estimate={quote.new} checkedAt={quote.checkedAt} />
                 </>
             ) : (
                 <span className="price-missing" title="Not checked yet">
@@ -212,111 +238,131 @@ function PriceCell({ q }: { q?: PriceQuote })
         </div>
     );
 }
-function ConditionChoice({ value, onChange, label }: { value: Condition; onChange: (v: Condition) => void; label: string })
+
+function ConditionChoice({ value, onChange, label }: { value: Condition; onChange: (newValue: Condition) => void; label: string })
 {
     return (
-        <Select value={value} onValueChange={v => onChange(v as Condition)}>
+        <Select value={value} onValueChange={choice => onChange(choice as Condition)}>
             <SelectTrigger aria-label={label} className="box-select condition-select">
                 <SelectValue />
             </SelectTrigger>
             <SelectContent>
-                {CONDITIONS.map(c => (
-                    <SelectItem key={c} value={c}>
-                        {c}
+                {CONDITIONS.map(condition => (
+                    <SelectItem key={condition} value={condition}>
+                        {condition}
                     </SelectItem>
                 ))}
             </SelectContent>
         </Select>
     );
 }
+
 function download(name: string, value: string | Uint8Array<ArrayBuffer>, type = 'application/json')
 {
     const url = URL.createObjectURL(new Blob([value], { type }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.download = name;
+    link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
 export default function CollectionApp()
 {
-    const [state, setState] = useState<State | null>(null),
-        [view, setView] = useState('preferences'),
-        [search, setSearch] = useState(''),
-        [filter, setFilter] = useState('all'),
-        [error, setError] = useState(''),
-        [saveError, setSaveError] = useState(''),
-        [pending, setPending] = useState(0),
-        [loaded, setLoaded] = useState(false),
-        [quick, setQuick] = useState(false),
-        [detail, setDetail] = useState<string | null>(null),
-        [notice, setNotice] = useState(''),
-        [undo, setUndo] = useState<{ id: string; p: Preference; name: string } | null>(null),
-        [profile, setProfile] = useState<string | null>(null),
-        [profiles, setProfiles] = useState<string[]>([]),
-        [adding, setAdding] = useState(false),
-        [newProfile, setNewProfile] = useState(''),
-        [syncing, setSyncing] = useState(false),
-        [prices, setPrices] = useState<Record<string, PriceQuote>>({}),
-        [pricing, setPricing] = useState(false),
-        [ebayOpen, setEbayOpen] = useState(false),
-        [priceProgress, setPriceProgress] = useState<{ done: number; total: number } | null>(null),
-        [sort, setSort] = useState<Sort>(DEFAULT_SORT),
-        [mainProfile, setMainProfile] = useState<string | null>(null),
-        [removing, setRemoving] = useState(false),
-        [aiAvailable, setAiAvailable] = useState(false),
-        [groupProgress, setGroupProgress] = useState<{ done: number; total: number } | null>(null);
-    const queue = useRef<Operation[]>([]),
-        busy = useRef(false),
-        blocked = useRef(false),
-        stateRef = useRef(state),
-        uploadRef = useRef<HTMLInputElement>(null),
-        profileRef = useRef<string | null>(null);
+    const [state, setState] = useState<State | null>(null);
+    const [view, setView] = useState('preferences');
+    const [search, setSearch] = useState('');
+    const [filter, setFilter] = useState('all');
+    const [loadError, setLoadError] = useState('');
+    const [saveError, setSaveError] = useState('');
+    const [pending, setPending] = useState(0);
+    const [loaded, setLoaded] = useState(false);
+    const [quick, setQuick] = useState(false);
+    const [detail, setDetail] = useState<string | null>(null);
+    const [notice, setNotice] = useState('');
+    const [undo, setUndo] = useState<{ id: string; p: Preference; name: string } | null>(null);
+    const [profile, setProfile] = useState<string | null>(null);
+    const [profiles, setProfiles] = useState<string[]>([]);
+    const [adding, setAdding] = useState(false);
+    const [newProfile, setNewProfile] = useState('');
+    const [syncing, setSyncing] = useState(false);
+    const [prices, setPrices] = useState<Record<string, PriceQuote>>({});
+    const [pricing, setPricing] = useState(false);
+    const [ebayOpen, setEbayOpen] = useState(false);
+    const [priceProgress, setPriceProgress] = useState<{ done: number; total: number } | null>(null);
+    const [sort, setSort] = useState<Sort>(DEFAULT_SORT);
+    const [mainProfile, setMainProfile] = useState<string | null>(null);
+    const [removing, setRemoving] = useState(false);
+    const [aiAvailable, setAiAvailable] = useState(false);
+    const [groupProgress, setGroupProgress] = useState<{ done: number; total: number } | null>(null);
+    const queue = useRef<Operation[]>([]);
+    const busy = useRef(false);
+    const blocked = useRef(false);
+    const stateRef = useRef(state);
+    const uploadRef = useRef<HTMLInputElement>(null);
+    const profileRef = useRef<string | null>(null);
+
     stateRef.current = state;
     const load = useCallback(async (next?: string) =>
     {
-        setError('');
+        setLoadError('');
         try
         {
             const want = next ?? profileRef.current ?? new URLSearchParams(location.search).get('profile');
-            const r = await fetch('/api/state' + (want ? `?profile=${encodeURIComponent(want)}` : ''), { cache: 'no-store' });
-            const j = (await r.json()) as State & {
+            const response = await fetch('/api/state' + (want ? `?profile=${encodeURIComponent(want)}` : ''), { cache: 'no-store' });
+            const data = (await response.json()) as State & {
                 profile: string;
                 defaultProfile: string;
                 aiAvailable: boolean;
                 profiles: string[];
                 error?: string;
             };
-            if (!r.ok) throw new Error(j.error);
-            profileRef.current = j.profile;
-            setProfile(j.profile);
-            setMainProfile(j.defaultProfile);
-            setAiAvailable(j.aiAvailable);
-            setProfiles(j.profiles);
-            setState({ games: j.games, preferences: j.preferences, settings: j.settings, savedAt: j.savedAt });
+
+            if (!response.ok)
+            {
+                throw new Error(data.error);
+            }
+
+            profileRef.current = data.profile;
+            setProfile(data.profile);
+            setMainProfile(data.defaultProfile);
+            setAiAvailable(data.aiAvailable);
+            setProfiles(data.profiles);
+            setState({ games: data.games, preferences: data.preferences, settings: data.settings, savedAt: data.savedAt });
             setLoaded(true);
-            const u = new URL(location.href);
-            u.searchParams.set('profile', j.profile);
-            history.replaceState(null, '', u);
+            const pageUrl = new URL(location.href);
+
+            pageUrl.searchParams.set('profile', data.profile);
+            history.replaceState(null, '', pageUrl);
         }
-        catch (e)
+        catch (error)
         {
-            setError(e instanceof Error ? e.message : 'Loading failed.');
+            setLoadError(error instanceof Error ? error.message : 'Loading failed.');
         }
     }, []);
+
     useEffect(() =>
     {
         void load();
     }, [load]);
+
     function switchProfile(name: string)
     {
         if (queue.current.length || syncing)
         {
             setNotice('Wait for pending changes to finish before switching collections.');
+
             return;
         }
-        const p = name.trim().toLowerCase();
-        if (!p) return;
+
+        const profileName = name.trim().toLowerCase();
+
+        if (!profileName)
+        {
+            return;
+        }
+
         setAdding(false);
         setNewProfile('');
         setState(null);
@@ -325,36 +371,47 @@ export default function CollectionApp()
         setDetail(null);
         setNotice('');
         setQuick(false);
-        void load(p);
+        void load(profileName);
     }
+
     const pump = useCallback(async () =>
     {
-        if (busy.current || blocked.current) return;
+        if (busy.current || blocked.current)
+        {
+            return;
+        }
+
         busy.current = true;
         try
         {
             while (queue.current.length)
             {
-                const op = queue.current[0];
+                const operation = queue.current[0];
+
                 try
                 {
-                    const r = await fetch('/api/state', {
+                    const response = await fetch('/api/state', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(op.payload),
+                        body: JSON.stringify(operation.payload),
                     });
-                    const j = (await r.json()) as { savedAt: string; error?: string };
-                    if (!r.ok) throw new Error(j.error || 'Saving failed.');
+                    const data = (await response.json()) as { savedAt: string; error?: string };
+
+                    if (!response.ok)
+                    {
+                        throw new Error(data.error || 'Saving failed.');
+                    }
+
                     queue.current.shift();
-                    op.resolve();
-                    setState(prev => (prev ? { ...prev, savedAt: j.savedAt } : prev));
+                    operation.resolve();
+                    setState(prev => (prev ? { ...prev, savedAt: data.savedAt } : prev));
                     setPending(queue.current.length);
                     setSaveError('');
                 }
-                catch (e)
+                catch (error)
                 {
                     blocked.current = true;
-                    setSaveError(e instanceof Error ? e.message : 'Saving failed.');
+                    setSaveError(error instanceof Error ? error.message : 'Saving failed.');
                     break;
                 }
             }
@@ -368,10 +425,12 @@ export default function CollectionApp()
         (data: object) =>
         {
             const payload = { ...data, profile: profileRef.current };
-            const p = new Promise<void>((resolve, reject) => queue.current.push({ payload, resolve, reject }));
+            const promise = new Promise<void>((resolve, reject) => queue.current.push({ payload, resolve, reject }));
+
             setPending(queue.current.length);
             void pump();
-            return p;
+
+            return promise;
         },
         [pump]
     );
@@ -379,32 +438,50 @@ export default function CollectionApp()
         (id: string, patch: Preference, remember = true) =>
         {
             const current = stateRef.current;
-            if (!current) return Promise.reject(new Error('Collection is not loaded.'));
-            if (!current.games.some(g => g.id === id)) return Promise.reject(new Error('Game is not in this collection.'));
-            if (remember) setUndo({ id, p: { ...current.preferences[id] }, name: current.games.find(g => g.id === id)!.name });
+
+            if (!current)
+            {
+                return Promise.reject(new Error('Collection is not loaded.'));
+            }
+
+            if (!current.games.some(game => game.id === id))
+            {
+                return Promise.reject(new Error('Game is not in this collection.'));
+            }
+
+            if (remember)
+            {
+                setUndo({ id, p: { ...current.preferences[id] }, name: current.games.find(game => game.id === id)!.name });
+            }
+
             setState(prev =>
                 prev ? { ...prev, preferences: { ...prev.preferences, [id]: { ...prev.preferences[id], ...patch } } } : prev
             );
+
             return enqueue({ action: 'preference', id, patch });
         },
         [enqueue]
     );
+
     function changeSettings(patch: Partial<Settings>)
     {
         setState(prev => (prev ? { ...prev, settings: { ...prev.settings, ...patch } } : prev));
         void enqueue({ action: 'settings', patch });
     }
+
     useEffect(() =>
     {
-        const warn = (e: BeforeUnloadEvent) =>
+        const warn = (event: BeforeUnloadEvent) =>
         {
             if (queue.current.length)
             {
-                e.preventDefault();
-                e.returnValue = '';
+                event.preventDefault();
+                event.returnValue = '';
             }
         };
+
         window.addEventListener('beforeunload', warn);
+
         return () => window.removeEventListener('beforeunload', warn);
     }, []);
     const result = useMemo(() => (state ? calculate(state) : null), [state]);
@@ -412,73 +489,107 @@ export default function CollectionApp()
     const visible = useMemo(() =>
     {
         const base = view === 'cull' ? result?.cull || [] : view === 'ranking' ? result?.ranked || [] : sortGames(all, sort);
+
         return base.filter(
-            g =>
-                g.name.toLowerCase().includes(search.toLowerCase()) &&
+            game =>
+                game.name.toLowerCase().includes(search.toLowerCase()) &&
                 (filter === 'all' ||
-                    (filter === 'unreviewed' && !g.p.reviewed) ||
-                    (filter === 'locked' && g.p.mustKeep) ||
-                    (filter === 'unknown' && (!g.group || g.mean == null)))
+                    (filter === 'unreviewed' && !game.preference.reviewed) ||
+                    (filter === 'locked' && game.preference.mustKeep) ||
+                    (filter === 'unknown' && (!game.group || game.mean == null)))
         );
     }, [view, result, all, filter, search, sort]);
-    const cullKey = result?.cull.map(g => g.id).join(',') ?? '';
+    const cullKey = result?.cull.map(game => game.id).join(',') ?? '';
+
     useEffect(() =>
     {
-        if (view !== 'cull' || !cullKey) return;
+        if (view !== 'cull' || !cullKey)
+        {
+            return;
+        }
+
         let stale = false;
+
         void (async () =>
         {
             try
             {
-                const r = await fetch('/api/prices', {
+                const response = await fetch('/api/prices', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ mode: 'cached', games: cullKey.split(',').map(id => ({ id, name: '' })) }),
                 });
-                const j = (await r.json()) as { prices: Record<string, PriceQuote> };
-                if (r.ok && !stale) setPrices(p => ({ ...p, ...j.prices }));
+                const data = (await response.json()) as { prices: Record<string, PriceQuote> };
+
+                if (response.ok && !stale)
+                {
+                    setPrices(previous => ({ ...previous, ...data.prices }));
+                }
             }
-            catch {}
+            catch
+            {}
         })();
+
         return () =>
         {
             stale = true;
         };
     }, [view, cullKey]);
-    const usesStorePrices = !!result?.cull.some(g => prices[g.id]?.new?.sources.some(s => s.source === 'bgp'));
-    const pricesMissing = result ? result.cull.filter(g => !prices[g.id] || prices[g.id].due).length : 0;
-    const reviewed = all.filter(g => g.p.reviewed).length;
-    const next = all.find(g => !g.p.reviewed && g.name.toLowerCase().includes(search.toLowerCase()));
+    const usesStorePrices = !!result?.cull.some(game => prices[game.id]?.new?.sources.some(estimate => estimate.source === 'bgp'));
+    const pricesMissing = result ? result.cull.filter(game => !prices[game.id] || prices[game.id].due).length : 0;
+    const reviewed = all.filter(game => game.preference.reviewed).length;
+    const next = all.find(game => !game.preference.reviewed && game.name.toLowerCase().includes(search.toLowerCase()));
+
     useEffect(() =>
     {
-        if (!quick || !next) return;
-        const listener = (e: KeyboardEvent) =>
+        if (!quick || !next)
         {
-            const el = e.target as HTMLElement;
-            if (['INPUT', 'TEXTAREA'].includes(el.tagName) || el.closest('[role="combobox"]')) return;
-            if (['1', '2', '3'].includes(e.key))
+            return;
+        }
+
+        const listener = (event: KeyboardEvent) =>
+        {
+            const target = event.target as HTMLElement;
+
+            if (['INPUT', 'TEXTAREA'].includes(target.tagName) || target.closest('[role="combobox"]'))
             {
-                e.preventDefault();
-                void change(next.id, { thumb: e.key === '1' ? 1 : e.key === '3' ? -1 : 0, reviewed: true });
+                return;
+            }
+
+            if (['1', '2', '3'].includes(event.key))
+            {
+                event.preventDefault();
+                void change(next.id, { thumb: event.key === '1' ? 1 : event.key === '3' ? -1 : 0, reviewed: true });
             }
         };
+
         window.addEventListener('keydown', listener);
+
         return () => window.removeEventListener('keydown', listener);
     }, [quick, next, change]);
     useEffect(() =>
     {
-        const context = (document as unknown as { modelContext?: { registerTool: (t: unknown, o: unknown) => Promise<void> | void } })
-            .modelContext;
-        if (!context?.registerTool) return;
+        const context = (
+            document as unknown as { modelContext?: { registerTool: (value: unknown, options: unknown) => Promise<void> | void } }
+        ).modelContext;
+
+        if (!context?.registerTool)
+        {
+            return;
+        }
+
         const lifecycle = new AbortController();
         const register = (tool: unknown) =>
         {
             try
             {
-                void Promise.resolve(context.registerTool(tool, { signal: lifecycle.signal })).catch(() => {});
+                void Promise.resolve(context.registerTool(tool, { signal: lifecycle.signal })).catch(() =>
+                {});
             }
-            catch {}
+            catch
+            {}
         };
+
         register({
             name: 'read_collection_cull',
             description: 'Read the current cull candidates, protected games and target.',
@@ -486,13 +597,19 @@ export default function CollectionApp()
             annotations: { readOnlyHint: true },
             execute: () =>
             {
-                const s = stateRef.current;
-                if (!s) throw new Error('Collection is not loaded.');
-                const r = calculate(s);
+                const latestState = stateRef.current;
+
+                if (!latestState)
+                {
+                    throw new Error('Collection is not loaded.');
+                }
+
+                const latestResult = calculate(latestState);
+
                 return {
-                    target: s.settings.target,
-                    cull: r.cull.map(g => ({ id: g.id, name: g.name, score: g.score })),
-                    protected: r.ranked.filter(g => g.protected).map(g => ({ id: g.id, name: g.name })),
+                    target: latestState.settings.target,
+                    cull: latestResult.cull.map(game => ({ id: game.id, name: game.name, score: game.score })),
+                    protected: latestResult.ranked.filter(game => game.protected).map(game => ({ id: game.id, name: game.name })),
                 };
             },
         });
@@ -508,148 +625,218 @@ export default function CollectionApp()
             annotations: { readOnlyHint: false },
             execute: async (input: unknown) =>
             {
-                const p = input as { gameId: string; keep: boolean };
-                if (typeof p?.gameId !== 'string' || typeof p?.keep !== 'boolean') throw new Error('gameId and keep are required.');
-                await change(p.gameId, { mustKeep: p.keep });
-                return { id: p.gameId, mustKeep: p.keep, cullCount: calculate(stateRef.current!).cull.length };
+                const toolInput = input as { gameId: string; keep: boolean };
+
+                if (typeof toolInput?.gameId !== 'string' || typeof toolInput?.keep !== 'boolean')
+                {
+                    throw new Error('gameId and keep are required.');
+                }
+
+                await change(toolInput.gameId, { mustKeep: toolInput.keep });
+
+                return { id: toolInput.gameId, mustKeep: toolInput.keep, cullCount: calculate(stateRef.current!).cull.length };
             },
         });
+
         return () => lifecycle.abort();
     }, [change]);
+
     function backup()
     {
-        if (!state) return;
+        if (!state)
+        {
+            return;
+        }
+
         download(
             'collection-cull-backup.json',
             JSON.stringify({ format: 'collection-cull-v1', ...state, exportedAt: new Date().toISOString() }, null, 2)
         );
         setNotice(pending ? 'Backup downloaded, including changes still waiting to save.' : 'Backup downloaded with all your preferences.');
     }
+
     async function importFile(file: File)
     {
-        if (!state) return;
+        if (!state)
+        {
+            return;
+        }
+
         if (queue.current.length)
         {
             setNotice('Wait for pending choices to save before importing.');
+
             return;
         }
+
         try
         {
-            if (file.size > 1500000) throw new Error('Choose a file smaller than 1.5 MB.');
+            if (file.size > 1500000)
+            {
+                throw new Error('Choose a file smaller than 1.5 MB.');
+            }
+
             const text = await file.text();
+
             if (file.name.toLowerCase().endsWith('.json'))
             {
-                const b = JSON.parse(text);
-                if (b.format !== 'collection-cull-v1' || !Array.isArray(b.games)) throw new Error('Choose a Collection Cull backup.');
-                await enqueue({ action: 'restore', backup: b });
+                const restoredBackup = JSON.parse(text);
+
+                if (restoredBackup.format !== 'collection-cull-v1' || !Array.isArray(restoredBackup.games))
+                {
+                    throw new Error('Choose a Collection Cull backup.');
+                }
+
+                await enqueue({ action: 'restore', backup: restoredBackup });
                 await load();
                 setNotice('Backup restored.');
             }
             else
             {
                 const games = collectionFromCSV(text, state.games);
+
                 await enqueue({ action: 'collection', games });
                 setState(prev => (prev ? { ...prev, games } : prev));
                 setNotice(`Updated ${games.length} collection entries. Preferences were matched by BGG ID.`);
             }
         }
-        catch (e)
+        catch (error)
         {
-            setNotice(e instanceof Error ? e.message : 'Import failed.');
+            setNotice(error instanceof Error ? error.message : 'Import failed.');
         }
         finally
         {
-            if (uploadRef.current) uploadRef.current.value = '';
+            if (uploadRef.current)
+            {
+                uploadRef.current.value = '';
+            }
         }
     }
+
     async function syncBgg()
     {
-        const p = profileRef.current;
-        if (!state || !p) return;
+        const currentProfile = profileRef.current;
+
+        if (!state || !currentProfile)
+        {
+            return;
+        }
+
         if (queue.current.length)
         {
             setNotice('Wait for pending choices to save before importing.');
+
             return;
         }
+
         setSyncing(true);
-        setNotice(`Importing ${p}’s collection from BoardGameGeek. This can take a minute…`);
+        setNotice(`Importing ${currentProfile}’s collection from BoardGameGeek. This can take a minute…`);
         try
         {
-            const r = await fetch('/api/bgg', {
+            const response = await fetch('/api/bgg', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ profile: p }),
+                body: JSON.stringify({ profile: currentProfile }),
             });
-            const j = (await r.json()) as { games: Game[]; savedAt: string; error?: string };
-            if (!r.ok) throw new Error(j.error || 'BGG import failed.');
-            if (profileRef.current !== p) return;
-            setState(prev => (prev ? { ...prev, games: j.games, savedAt: j.savedAt } : prev));
-            setProfiles(list => (list.includes(p) ? list : [...list, p].sort()));
-            setNotice(`Imported ${j.games.length} entries from BoardGameGeek. Preferences were matched by BGG ID.`);
-            if (aiAvailable) void assignPlayGroups(j.games);
+            const data = (await response.json()) as { games: Game[]; savedAt: string; error?: string };
+
+            if (!response.ok)
+            {
+                throw new Error(data.error || 'BGG import failed.');
+            }
+
+            if (profileRef.current !== currentProfile)
+            {
+                return;
+            }
+
+            setState(prev => (prev ? { ...prev, games: data.games, savedAt: data.savedAt } : prev));
+            setProfiles(list => (list.includes(currentProfile) ? list : [...list, currentProfile].sort()));
+            setNotice(`Imported ${data.games.length} entries from BoardGameGeek. Preferences were matched by BGG ID.`);
+            if (aiAvailable)
+            {
+                void assignPlayGroups(data.games);
+            }
         }
-        catch (e)
+        catch (error)
         {
-            if (profileRef.current === p) setNotice(e instanceof Error ? e.message : 'BGG import failed.');
+            if (profileRef.current === currentProfile)
+            {
+                setNotice(error instanceof Error ? error.message : 'BGG import failed.');
+            }
         }
         finally
         {
             setSyncing(false);
         }
     }
+
     const knownProfiles = profile && !profiles.includes(profile) ? [...profiles, profile].sort() : profiles;
+
     async function checkPrices()
     {
-        if (!result) return;
-        const games = result.cull.map(g => ({ id: g.id, name: g.name }));
-        // Missing or out-of-date prices first; if everything is current, refresh the lot.
-        const due = games.filter(g =>
+        if (!result)
         {
-            const q = prices[g.id];
-            return !q || q.due || Date.now() - Date.parse(q.checkedAt) > PRICE_STALE_MS;
+            return;
+        }
+
+        const games = result.cull.map(game => ({ id: game.id, name: game.name }));
+        // Missing or out-of-date prices first; if everything is current, refresh the lot.
+        const due = games.filter(game =>
+        {
+            const quote = prices[game.id];
+
+            return !quote || quote.due || Date.now() - Date.parse(quote.checkedAt) > PRICE_STALE_MS;
         });
-        const todo = due.length ? due : games,
-            sources = new Set<PriceSource>(),
-            warnings = new Set<string>();
+        const todo = due.length ? due : games;
+        const sources = new Set<PriceSource>();
+        const warnings = new Set<string>();
+
         setPricing(true);
         setNotice('');
         setPriceProgress({ done: 0, total: todo.length });
         try
         {
-            for (let i = 0; i < todo.length; i += PRICE_BATCH)
+            for (let index = 0; index < todo.length; index += PRICE_BATCH)
             {
-                const r = await fetch('/api/prices', {
+                const response = await fetch('/api/prices', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mode: 'refresh', games: todo.slice(i, i + PRICE_BATCH) }),
+                    body: JSON.stringify({ mode: 'refresh', games: todo.slice(index, index + PRICE_BATCH) }),
                 });
-                const j = (await r.json()) as {
+                const data = (await response.json()) as {
                     prices: Record<string, PriceQuote>;
                     sources: PriceSource[];
                     warnings: string[];
                     error?: string;
                 };
-                if (!r.ok) throw new Error(j.error || 'Price lookup failed.');
-                setPrices(p => ({ ...p, ...j.prices }));
-                j.sources.forEach(s => sources.add(s));
-                j.warnings?.forEach(w => warnings.add(w));
-                setPriceProgress({ done: Math.min(i + PRICE_BATCH, todo.length), total: todo.length });
+
+                if (!response.ok)
+                {
+                    throw new Error(data.error || 'Price lookup failed.');
+                }
+
+                setPrices(previous => ({ ...previous, ...data.prices }));
+                data.sources.forEach(source => sources.add(source));
+                data.warnings?.forEach(warning => warnings.add(warning));
+                setPriceProgress({ done: Math.min(index + PRICE_BATCH, todo.length), total: todo.length });
             }
+
             setNotice(
                 [
                     `Prices updated for ${todo.length} game${todo.length === 1 ? '' : 's'} from ${(
                         Object.keys(SOURCE_NAMES) as PriceSource[]
                     )
-                        .filter(s => sources.has(s))
-                        .map(s => SOURCE_NAMES[s])
+                        .filter(source => sources.has(source))
+                        .map(source => SOURCE_NAMES[source])
                         .join(', ')}. Values are median asking prices in USD, excluding shipping.`,
                     ...warnings,
                 ].join(' ')
             );
         }
-        catch (e)
+        catch (error)
         {
-            setNotice(`${e instanceof Error ? e.message : 'Price lookup failed.'} Prices found so far are kept.`);
+            setNotice(`${error instanceof Error ? error.message : 'Price lookup failed.'} Prices found so far are kept.`);
         }
         finally
         {
@@ -657,88 +844,143 @@ export default function CollectionApp()
             setPriceProgress(null);
         }
     }
+
     // Standalone games with no play group, from the collection or from your own edits.
     const ungrouped = (games: Game[], prefs: Record<string, Preference>) =>
-        games.filter(g => g.type === 'standalone' && !g.group && !prefs[g.id]?.group);
+        games.filter(game => game.type === 'standalone' && !game.group && !prefs[game.id]?.group);
+
     async function assignPlayGroups(games: Game[])
     {
-        const p = profileRef.current,
-            todo = ungrouped(games, stateRef.current?.preferences ?? {});
-        if (!p || !todo.length || groupProgress) return;
+        const currentProfile = profileRef.current;
+        const todo = ungrouped(games, stateRef.current?.preferences ?? {});
+
+        if (!currentProfile || !todo.length || groupProgress)
+        {
+            return;
+        }
+
         setGroupProgress({ done: 0, total: todo.length });
         let assigned = 0;
+
         try
         {
-            for (let i = 0; i < todo.length; i += GROUP_BATCH)
+            for (let index = 0; index < todo.length; index += GROUP_BATCH)
             {
-                const batch = todo.slice(i, i + GROUP_BATCH);
-                const r = await fetch('/api/groups', {
+                const batch = todo.slice(index, index + GROUP_BATCH);
+                const response = await fetch('/api/groups', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ profile: p, ids: batch.map(g => g.id) }),
+                    body: JSON.stringify({ profile: currentProfile, ids: batch.map(game => game.id) }),
                 });
-                const j = (await r.json()) as { groups?: Record<string, string>; error?: string };
-                if (!r.ok) throw new Error(j.error || 'Couldn’t assign play groups.');
-                if (profileRef.current !== p) return;
-                const groups = j.groups ?? {};
+                const data = (await response.json()) as { groups?: Record<string, string>; error?: string };
+
+                if (!response.ok)
+                {
+                    throw new Error(data.error || 'Couldn’t assign play groups.');
+                }
+
+                if (profileRef.current !== currentProfile)
+                {
+                    return;
+                }
+
+                const groups = data.groups ?? {};
+
                 assigned += Object.keys(groups).length;
                 setState(prev =>
-                    prev ? { ...prev, games: prev.games.map(g => (groups[g.id] && !g.group ? { ...g, group: groups[g.id] } : g)) } : prev
+                    prev
+                        ? {
+                            ...prev,
+                            games: prev.games.map(game => (groups[game.id] && !game.group ? { ...game, group: groups[game.id] } : game)),
+                        }
+                        : prev
                 );
-                setGroupProgress({ done: Math.min(i + GROUP_BATCH, todo.length), total: todo.length });
+                setGroupProgress({ done: Math.min(index + GROUP_BATCH, todo.length), total: todo.length });
             }
+
             setNotice(`Assigned play groups to ${assigned} games, so similar games now count as overlap. Edit any group with the pencil.`);
         }
-        catch (e)
+        catch (error)
         {
-            if (profileRef.current === p)
-                setNotice(`${e instanceof Error ? e.message : 'Couldn’t assign play groups.'} Groups assigned so far are kept.`);
+            if (profileRef.current === currentProfile)
+            {
+                setNotice(`${error instanceof Error ? error.message : 'Couldn’t assign play groups.'} Groups assigned so far are kept.`);
+            }
         }
         finally
         {
             setGroupProgress(null);
         }
     }
+
     async function removeProfile()
     {
-        const p = profileRef.current;
-        if (!p || p === mainProfile) return;
+        const currentProfile = profileRef.current;
+
+        if (!currentProfile || currentProfile === mainProfile)
+        {
+            return;
+        }
+
         if (queue.current.length)
         {
             setNotice('Wait for pending choices to save before removing a collection.');
+
             return;
         }
+
         try
         {
-            const r = await fetch('/api/state', {
+            const response = await fetch('/api/state', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'remove', profile: p }),
+                body: JSON.stringify({ action: 'remove', profile: currentProfile }),
             });
-            const j = (await r.json()) as { error?: string };
-            if (!r.ok) throw new Error(j.error || 'Couldn’t remove the collection.');
-            setProfiles(list => list.filter(x => x !== p));
+            const data = (await response.json()) as { error?: string };
+
+            if (!response.ok)
+            {
+                throw new Error(data.error || 'Couldn’t remove the collection.');
+            }
+
+            setProfiles(list => list.filter(existing => existing !== currentProfile));
             switchProfile(mainProfile ?? '');
-            setNotice(`Removed ${p}’s collection.`);
+            setNotice(`Removed ${currentProfile}’s collection.`);
         }
-        catch (e)
+        catch (error)
         {
-            setNotice(e instanceof Error ? e.message : 'Couldn’t remove the collection.');
+            setNotice(error instanceof Error ? error.message : 'Couldn’t remove the collection.');
         }
     }
+
     async function exportTradeIn()
     {
-        if (!result) return;
+        if (!result)
+        {
+            return;
+        }
+
         try
         {
-            const r = await fetch(NKG_TEMPLATE_PATH);
-            if (!r.ok) throw new Error('Template unavailable.');
+            const response = await fetch(NKG_TEMPLATE_PATH);
+
+            if (!response.ok)
+            {
+                throw new Error('Template unavailable.');
+            }
+
             const rows = [...result.cull]
                 .sort((a, b) => nameKey(a.name).localeCompare(nameKey(b.name)))
-                .map(g => ({ publisher: g.publisher || '', title: g.name, condition: g.p.condition ?? DEFAULT_CONDITION, comments: '' }));
+                .map(game => ({
+                    publisher: game.publisher || '',
+                    title: game.name,
+                    condition: game.preference.condition ?? DEFAULT_CONDITION,
+                    comments: '',
+                }));
+
             download(
                 `noble-knight-trade-in-${profile ?? 'collection'}.xlsx`,
-                fillTradeInTemplate(new Uint8Array(await r.arrayBuffer()), rows) as Uint8Array<ArrayBuffer>,
+                fillTradeInTemplate(new Uint8Array(await response.arrayBuffer()), rows) as Uint8Array<ArrayBuffer>,
                 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
             );
             setNotice(
@@ -750,13 +992,19 @@ export default function CollectionApp()
             setNotice('Couldn’t build the trade-in spreadsheet. Please retry.');
         }
     }
+
     function undoLast()
     {
-        if (!undo) return;
+        if (!undo)
+        {
+            return;
+        }
+
         const current = stateRef.current!.preferences[undo.id] || {};
-        const old = undo.p,
-            game = stateRef.current!.games.find(g => g.id === undo.id)!;
+        const old = undo.p;
+        const game = stateRef.current!.games.find(candidate => candidate.id === undo.id)!;
         const restore: Preference = {};
+
         for (const key of Object.keys(current) as (keyof Preference)[])
         {
             (restore as Record<string, unknown>)[key] = Object.hasOwn(old, key)
@@ -769,47 +1017,51 @@ export default function CollectionApp()
                             ? null
                             : ((game as unknown as Record<string, unknown>)[key] ?? null);
         }
+
         void change(undo.id, { ...restore, ...old }, false);
         setNotice(`Restored the previous choice for ${undo.name}.`);
         setUndo(null);
     }
-    const expansionGames = state?.games.filter(g => g.type === 'expansion') || [];
-    const detailGame = state?.games.find(g => g.id === detail),
-        detailPref = detail ? state?.preferences[detail] || {} : {};
-    function thumbControls(g: Scored | Game, p: Preference)
+
+    const expansionGames = state?.games.filter(game => game.type === 'expansion') || [];
+    const detailGame = state?.games.find(game => game.id === detail);
+    const detailPref = detail ? state?.preferences[detail] || {} : {};
+
+    function thumbControls(game: Scored | Game, preference: Preference)
     {
         return (
-            <div className="thumbs" aria-label={`Preference for ${g.name}`}>
+            <div className="thumbs" aria-label={`Preference for ${game.name}`}>
                 <Button
                     variant="ghost"
-                    aria-label={`Prefer keep ${g.name}`}
-                    aria-pressed={p.thumb === 1}
-                    className={p.thumb === 1 ? 'selected up' : 'up'}
-                    onClick={() => void change(g.id, { thumb: 1, reviewed: true })}
+                    aria-label={`Prefer keep ${game.name}`}
+                    aria-pressed={preference.thumb === 1}
+                    className={preference.thumb === 1 ? 'selected up' : 'up'}
+                    onClick={() => void change(game.id, { thumb: 1, reviewed: true })}
                 >
                     <ThumbsUp />
                 </Button>
                 <Button
                     variant="ghost"
-                    aria-label={`Neutral ${g.name}`}
-                    aria-pressed={(p.thumb || 0) === 0 && !!p.reviewed}
-                    className={(p.thumb || 0) === 0 && p.reviewed ? 'selected' : 'neutral'}
-                    onClick={() => void change(g.id, { thumb: 0, reviewed: true })}
+                    aria-label={`Neutral ${game.name}`}
+                    aria-pressed={(preference.thumb || 0) === 0 && !!preference.reviewed}
+                    className={(preference.thumb || 0) === 0 && preference.reviewed ? 'selected' : 'neutral'}
+                    onClick={() => void change(game.id, { thumb: 0, reviewed: true })}
                 >
                     —
                 </Button>
                 <Button
                     variant="ghost"
-                    aria-label={`Prefer cull ${g.name}`}
-                    aria-pressed={p.thumb === -1}
-                    className={p.thumb === -1 ? 'selected down' : 'down'}
-                    onClick={() => void change(g.id, { thumb: -1, reviewed: true })}
+                    aria-label={`Prefer cull ${game.name}`}
+                    aria-pressed={preference.thumb === -1}
+                    className={preference.thumb === -1 ? 'selected down' : 'down'}
+                    onClick={() => void change(game.id, { thumb: -1, reviewed: true })}
                 >
                     <ThumbsDown />
                 </Button>
             </div>
         );
     }
+
     return (
         <TooltipProvider delayDuration={150}>
             <div className="workspace">
@@ -827,9 +1079,9 @@ export default function CollectionApp()
                         {adding ? (
                             <form
                                 className="profile-form"
-                                onSubmit={e =>
+                                onSubmit={event =>
                                 {
-                                    e.preventDefault();
+                                    event.preventDefault();
                                     switchProfile(newProfile);
                                 }}
                             >
@@ -837,7 +1089,7 @@ export default function CollectionApp()
                                     placeholder="BGG username"
                                     aria-label="BGG username"
                                     value={newProfile}
-                                    onChange={e => setNewProfile(e.target.value)}
+                                    onChange={event => setNewProfile(event.target.value)}
                                     autoFocus
                                 />
                                 <Button type="submit" disabled={!newProfile.trim()}>
@@ -850,8 +1102,12 @@ export default function CollectionApp()
                         ) : (
                             <Select
                                 value={profile ?? ''}
-                                onValueChange={v =>
-                                    v === '__new' ? setAdding(true) : v === '__remove' ? setRemoving(true) : switchProfile(v)
+                                onValueChange={selection =>
+                                    selection === '__new'
+                                        ? setAdding(true)
+                                        : selection === '__remove'
+                                            ? setRemoving(true)
+                                            : switchProfile(selection)
                                 }
                                 disabled={pending > 0 || syncing}
                             >
@@ -859,9 +1115,9 @@ export default function CollectionApp()
                                     <SelectValue placeholder="Collection" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {knownProfiles.map(p => (
-                                        <SelectItem key={p} value={p}>
-                                            {p}
+                                    {knownProfiles.map(profileName => (
+                                        <SelectItem key={profileName} value={profileName}>
+                                            {profileName}
                                         </SelectItem>
                                     ))}
                                     <SelectItem value="__new">Another BGG user…</SelectItem>
@@ -918,18 +1174,22 @@ export default function CollectionApp()
                             type="file"
                             accept=".csv,.json"
                             hidden
-                            onChange={e =>
+                            onChange={event =>
                             {
-                                const f = e.target.files?.[0];
-                                if (f) void importFile(f);
+                                const file = event.target.files?.[0];
+
+                                if (file)
+                                {
+                                    void importFile(file);
+                                }
                             }}
                         />
                     </div>
                 </header>
-                {error ? (
+                {loadError ? (
                     <section className="message error">
                         <h2>Couldn’t load your collection</h2>
-                        <p>{error}</p>
+                        <p>{loadError}</p>
                         <Button onClick={() => void load()}>
                             <RefreshCw />
                             Retry
@@ -983,10 +1243,14 @@ export default function CollectionApp()
                                         min={0}
                                         max={all.length}
                                         value={state.settings.target}
-                                        onChange={e =>
+                                        onChange={event =>
                                         {
-                                            const n = Number(e.target.value);
-                                            if (Number.isInteger(n) && n >= 0 && n <= all.length) changeSettings({ target: n });
+                                            const newTarget = Number(event.target.value);
+
+                                            if (Number.isInteger(newTarget) && newTarget >= 0 && newTarget <= all.length)
+                                            {
+                                                changeSettings({ target: newTarget });
+                                            }
                                         }}
                                     />{' '}
                                     standalone games
@@ -1008,7 +1272,7 @@ export default function CollectionApp()
                                     <span>Preferences reviewed</span>
                                 </div>
                                 <div>
-                                    <strong>{all.filter(g => g.p.mustKeep).length}</strong>
+                                    <strong>{all.filter(game => game.preference.mustKeep).length}</strong>
                                     <span>Must keep</span>
                                 </div>
                             </div>
@@ -1041,9 +1305,9 @@ export default function CollectionApp()
                         )}
                         <Tabs
                             value={view}
-                            onValueChange={v =>
+                            onValueChange={tab =>
                             {
-                                setView(v);
+                                setView(tab);
                                 setQuick(false);
                                 setFilter('all');
                             }}
@@ -1091,10 +1355,14 @@ export default function CollectionApp()
                                                     max={key === 'lowThreshold' ? 10 : 200}
                                                     step="0.5"
                                                     value={Number(state.settings[key])}
-                                                    onChange={e =>
+                                                    onChange={event =>
                                                     {
-                                                        const v = Number(e.target.value);
-                                                        if (v >= 0 && v <= 200) changeSettings({ [key]: v });
+                                                        const newValue = Number(event.target.value);
+
+                                                        if (newValue >= 0 && newValue <= 200)
+                                                        {
+                                                            changeSettings({ [key]: newValue });
+                                                        }
                                                     }}
                                                 />
                                             </label>
@@ -1103,7 +1371,7 @@ export default function CollectionApp()
                                     <label className="check-label">
                                         <Checkbox
                                             checked={state.settings.preserve}
-                                            onCheckedChange={v => changeSettings({ preserve: v === true })}
+                                            onCheckedChange={checked => changeSettings({ preserve: checked === true })}
                                         />
                                         Preserve representatives for groups with similar complexity
                                     </label>
@@ -1153,7 +1421,7 @@ export default function CollectionApp()
                                             placeholder="Find a game…"
                                             aria-label="Find a game"
                                             value={search}
-                                            onChange={e => setSearch(e.target.value)}
+                                            onChange={event => setSearch(event.target.value)}
                                         />
                                     </div>
                                     {view !== 'expansions' && (
@@ -1173,22 +1441,24 @@ export default function CollectionApp()
                                         <>
                                             <Select
                                                 value={sort.key}
-                                                onValueChange={v => setSort({ key: v as SortKey, dir: SORTS[v as SortKey].dir })}
+                                                onValueChange={selection =>
+                                                    setSort({ key: selection as SortKey, dir: SORTS[selection as SortKey].dir })
+                                                }
                                             >
                                                 <SelectTrigger aria-label="Sort games by">
                                                     <SelectValue />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    {(Object.keys(SORTS) as SortKey[]).map(k => (
-                                                        <SelectItem key={k} value={k}>
-                                                            Sort: {SORTS[k].label}
+                                                    {(Object.keys(SORTS) as SortKey[]).map(sortKey => (
+                                                        <SelectItem key={sortKey} value={sortKey}>
+                                                            Sort: {SORTS[sortKey].label}
                                                         </SelectItem>
                                                     ))}
                                                 </SelectContent>
                                             </Select>
                                             <Button
                                                 variant="outline"
-                                                onClick={() => setSort(s => ({ ...s, dir: s.dir === 1 ? -1 : 1 }))}
+                                                onClick={() => setSort(current => ({ ...current, dir: current.dir === 1 ? -1 : 1 }))}
                                                 aria-label={`Reverse sort order (now ${describeSort(sort)})`}
                                                 title={describeSort(sort)}
                                             >
@@ -1222,7 +1492,8 @@ export default function CollectionApp()
                                             variant="outline"
                                             onClick={() =>
                                             {
-                                                const escape = (v: unknown) => '"' + String(v ?? '').replaceAll('"', '""') + '"';
+                                                const escape = (value: unknown) => '"' + String(value ?? '').replaceAll('"', '""') + '"';
+
                                                 download(
                                                     'cull-list.csv',
                                                     [
@@ -1239,21 +1510,25 @@ export default function CollectionApp()
                                                             'Est. used shipping (USD)',
                                                             'Est. new shipping (USD)',
                                                         ],
-                                                        ...result.cull.map(g => [
-                                                            g.id,
-                                                            g.name,
-                                                            g.score.toFixed(2),
-                                                            cullExplanation(g, state, result),
-                                                            all.find(a => a.id === g.alternative)?.name || '',
-                                                            g.p.thumb === 1 ? 'Prefer keep' : g.p.thumb === -1 ? 'Prefer cull' : 'Neutral',
-                                                            g.p.box == null ? 'Unknown' : boxLabels[g.p.box],
-                                                            prices[g.id]?.used?.median ?? '',
-                                                            prices[g.id]?.new?.median ?? '',
-                                                            prices[g.id]?.used?.shipping ?? '',
-                                                            prices[g.id]?.new?.shipping ?? '',
+                                                        ...result.cull.map(game => [
+                                                            game.id,
+                                                            game.name,
+                                                            game.score.toFixed(2),
+                                                            cullExplanation(game, state, result),
+                                                            all.find(other => other.id === game.alternative)?.name || '',
+                                                            game.preference.thumb === 1
+                                                                ? 'Prefer keep'
+                                                                : game.preference.thumb === -1
+                                                                    ? 'Prefer cull'
+                                                                    : 'Neutral',
+                                                            game.preference.box == null ? 'Unknown' : boxLabels[game.preference.box],
+                                                            prices[game.id]?.used?.median ?? '',
+                                                            prices[game.id]?.new?.median ?? '',
+                                                            prices[game.id]?.used?.shipping ?? '',
+                                                            prices[game.id]?.new?.shipping ?? '',
                                                         ]),
                                                     ]
-                                                        .map(r => r.map(escape).join(','))
+                                                        .map(row => row.map(escape).join(','))
                                                         .join('\r\n'),
                                                     'text/csv'
                                                 );
@@ -1363,14 +1638,18 @@ export default function CollectionApp()
                                                 <div className="quick-extra">
                                                     <label className="check-label">
                                                         <Checkbox
-                                                            checked={!!next.p.mustKeep}
-                                                            onCheckedChange={v => void change(next.id, { mustKeep: v === true })}
+                                                            checked={!!next.preference.mustKeep}
+                                                            onCheckedChange={checked =>
+                                                                void change(next.id, { mustKeep: checked === true })
+                                                            }
                                                         />
                                                         Must keep
                                                     </label>
                                                     <Choice
-                                                        value={next.p.box == null ? 'unknown' : String(next.p.box)}
-                                                        onChange={v => void change(next.id, { box: v === 'unknown' ? null : Number(v) })}
+                                                        value={next.preference.box == null ? 'unknown' : String(next.preference.box)}
+                                                        onChange={choice =>
+                                                            void change(next.id, { box: choice === 'unknown' ? null : Number(choice) })
+                                                        }
                                                         label={`Box size for ${next.name}`}
                                                     />
                                                     <Button variant="ghost" onClick={() => setDetail(next.id)}>
@@ -1393,48 +1672,53 @@ export default function CollectionApp()
                                 ) : view === 'expansions' ? (
                                     <section className="game-list">
                                         {expansionGames
-                                            .filter(g => g.name.toLowerCase().includes(search.toLowerCase()))
-                                            .map(g =>
+                                            .filter(game => game.name.toLowerCase().includes(search.toLowerCase()))
+                                            .map(game =>
                                             {
-                                                const p = state.preferences[g.id] || {},
-                                                    parentCull =
-                                                        g.parentId && !result.kept.has(g.parentId) && all.some(x => x.id === g.parentId);
+                                                const preference = state.preferences[game.id] || {};
+                                                const parentCull =
+                                                    game.parentId &&
+                                                        !result.kept.has(game.parentId) &&
+                                                        all.some(other => other.id === game.parentId);
+
                                                 return (
-                                                    <article className="game-row expansion-row" key={g.id}>
+                                                    <article className="game-row expansion-row" key={game.id}>
                                                         <div className="game-info">
                                                             <div className="title-line">
                                                                 <a
                                                                     className="game-title"
-                                                                    href={`https://boardgamegeek.com/boardgame/${g.id}`}
+                                                                    href={`https://boardgamegeek.com/boardgame/${game.id}`}
                                                                     target="_blank"
                                                                     rel="noreferrer"
                                                                     title="Open on BoardGameGeek"
                                                                 >
-                                                                    {g.name}
+                                                                    {game.name}
                                                                 </a>
                                                                 <button
                                                                     type="button"
                                                                     className="edit-details"
-                                                                    aria-label={`Edit details for ${g.name}`}
+                                                                    aria-label={`Edit details for ${game.name}`}
                                                                     title="Edit details"
-                                                                    onClick={() => setDetail(g.id)}
+                                                                    onClick={() => setDetail(game.id)}
                                                                 >
                                                                     <Pencil size={14} aria-hidden />
                                                                 </button>
                                                             </div>
                                                             <p>
                                                                 {parentCull
-                                                                    ? p.mustKeep
+                                                                    ? preference.mustKeep
                                                                         ? 'Marked keep; review parent on cull list'
                                                                         : 'Bundle with parent being culled'
-                                                                    : g.parentName || 'Parent not mapped'}
+                                                                    : game.parentName || 'Parent not mapped'}
                                                             </p>
                                                         </div>
-                                                        {thumbControls(g, p)}
+                                                        {thumbControls(game, preference)}
                                                         <label className="check-label">
                                                             <Checkbox
-                                                                checked={!!p.mustKeep}
-                                                                onCheckedChange={v => void change(g.id, { mustKeep: v === true })}
+                                                                checked={!!preference.mustKeep}
+                                                                onCheckedChange={checked =>
+                                                                    void change(game.id, { mustKeep: checked === true })
+                                                                }
                                                             />
                                                             Keep module
                                                         </label>
@@ -1494,7 +1778,7 @@ export default function CollectionApp()
                                                     >
                                                         <button
                                                             type="button"
-                                                            onClick={() => setSort(s => nextSort(s, key))}
+                                                            onClick={() => setSort(current => nextSort(current, key))}
                                                             aria-label={`Sort by ${SORTS[key].label}`}
                                                             className={sort.key === key ? 'active' : ''}
                                                         >
@@ -1526,94 +1810,107 @@ export default function CollectionApp()
                                         {visible.length === 0 ? (
                                             <div className="empty">No games match this view.</div>
                                         ) : (
-                                            visible.map((g, i) =>
+                                            visible.map((game, index) =>
                                             {
                                                 return (
-                                                    <article className={`game-row ${g.p.mustKeep ? 'locked' : ''}`} key={g.id}>
+                                                    <article
+                                                        className={`game-row ${game.preference.mustKeep ? 'locked' : ''}`}
+                                                        key={game.id}
+                                                    >
                                                         <span className="row-rank">
                                                             {view === 'preferences' ? (
-                                                                g.p.reviewed ? (
+                                                                game.preference.reviewed ? (
                                                                     <Check size={18} />
                                                                 ) : (
                                                                     <span className="unreviewed-mark" />
                                                                 )
                                                             ) : (
-                                                                i + 1
+                                                                index + 1
                                                             )}
                                                         </span>
                                                         <div className="game-info">
                                                             <div className="title-line">
                                                                 <a
                                                                     className="game-title"
-                                                                    href={`https://boardgamegeek.com/boardgame/${g.id}`}
+                                                                    href={`https://boardgamegeek.com/boardgame/${game.id}`}
                                                                     target="_blank"
                                                                     rel="noreferrer"
                                                                     title="Open on BoardGameGeek"
                                                                 >
-                                                                    {g.name}
-                                                                    {g.p.mustKeep && <LockKeyhole size={15} />}
+                                                                    {game.name}
+                                                                    {game.preference.mustKeep && <LockKeyhole size={15} />}
                                                                 </a>
                                                                 <button
                                                                     type="button"
                                                                     className="edit-details"
-                                                                    aria-label={`Edit details for ${g.name}`}
+                                                                    aria-label={`Edit details for ${game.name}`}
                                                                     title="Edit details"
-                                                                    onClick={() => setDetail(g.id)}
+                                                                    onClick={() => setDetail(game.id)}
                                                                 >
                                                                     <Pencil size={14} aria-hidden />
                                                                 </button>
                                                             </div>
                                                             <p>
-                                                                {g.group || 'Classification needed'}
+                                                                {game.group || 'Classification needed'}
                                                                 <span>
                                                                     {' '}
-                                                                    · {g.minutes ? `${g.minutes} min` : 'Time unknown'} · {g.minPlayers}–
-                                                                    {g.maxPlayers} players · BGG weight{' '}
-                                                                    {g.complexity?.toFixed(2) ?? 'unknown'}/5
+                                                                    · {game.minutes ? `${game.minutes} min` : 'Time unknown'} ·{' '}
+                                                                    {game.minPlayers}–{game.maxPlayers} players · BGG weight{' '}
+                                                                    {game.complexity?.toFixed(2) ?? 'unknown'}/5
                                                                 </span>
                                                             </p>
                                                             {view === 'ranking' && (
-                                                                <FactorChips factors={keepFactors(g, state, result)} onOpen={setDetail} />
+                                                                <FactorChips
+                                                                    factors={keepFactors(game, state, result)}
+                                                                    onOpen={setDetail}
+                                                                />
                                                             )}
                                                         </div>
                                                         {view === 'cull' && (
                                                             <div className="cull-explanation">
                                                                 <span className="mobile-reason-label">Why it’s on the cull list</span>
-                                                                <FactorChips factors={keepFactors(g, state, result)} onOpen={setDetail} />
+                                                                <FactorChips
+                                                                    factors={keepFactors(game, state, result)}
+                                                                    onOpen={setDetail}
+                                                                />
                                                             </div>
                                                         )}
                                                         <div className="rating-value">
                                                             <strong>
-                                                                {view === 'preferences' ? g.rating.toFixed(1) : g.score.toFixed(1)}
+                                                                {view === 'preferences' ? game.rating.toFixed(1) : game.score.toFixed(1)}
                                                             </strong>
                                                             <span>{view === 'preferences' ? 'rating' : 'keep score'}</span>
                                                         </div>
-                                                        {view === 'cull' && <PriceCell q={prices[g.id]} />}
-                                                        {thumbControls(g, g.p)}
+                                                        {view === 'cull' && <PriceCell quote={prices[game.id]} />}
+                                                        {thumbControls(game, game.preference)}
                                                         <Choice
-                                                            value={g.p.box == null ? 'unknown' : String(g.p.box)}
-                                                            onChange={v => void change(g.id, { box: v === 'unknown' ? null : Number(v) })}
-                                                            label={`Box size for ${g.name}`}
+                                                            value={game.preference.box == null ? 'unknown' : String(game.preference.box)}
+                                                            onChange={choice =>
+                                                                void change(game.id, { box: choice === 'unknown' ? null : Number(choice) })
+                                                            }
+                                                            label={`Box size for ${game.name}`}
                                                         />
                                                         <div className={view === 'cull' ? 'trade-cell' : 'contents'}>
                                                             <label className="check-label keep-check">
                                                                 <Checkbox
-                                                                    checked={!!g.p.mustKeep}
-                                                                    aria-label={`${view === 'cull' ? 'Keep this game' : 'Must keep'}: ${g.name}`}
-                                                                    onCheckedChange={v =>
+                                                                    checked={!!game.preference.mustKeep}
+                                                                    aria-label={`${view === 'cull' ? 'Keep this game' : 'Must keep'}: ${game.name}`}
+                                                                    onCheckedChange={checked =>
                                                                     {
-                                                                        void change(g.id, { mustKeep: v === true });
-                                                                        if (view === 'cull' && v)
-                                                                            setNotice(`${g.name} retained. The cull list has updated.`);
+                                                                        void change(game.id, { mustKeep: checked === true });
+                                                                        if (view === 'cull' && checked)
+                                                                        {
+                                                                            setNotice(`${game.name} retained. The cull list has updated.`);
+                                                                        }
                                                                     }}
                                                                 />
                                                                 {view === 'cull' ? 'Keep this game' : 'Must keep'}
                                                             </label>
                                                             {view === 'cull' && (
                                                                 <ConditionChoice
-                                                                    value={g.p.condition ?? DEFAULT_CONDITION}
-                                                                    onChange={v => void change(g.id, { condition: v })}
-                                                                    label={`Trade-in condition for ${g.name}`}
+                                                                    value={game.preference.condition ?? DEFAULT_CONDITION}
+                                                                    onChange={condition => void change(game.id, { condition: condition })}
+                                                                    label={`Trade-in condition for ${game.name}`}
                                                                 />
                                                             )}
                                                         </div>
@@ -1643,9 +1940,12 @@ export default function CollectionApp()
                 )}
                 <Sheet
                     open={!!detailGame}
-                    onOpenChange={v =>
+                    onOpenChange={open =>
                     {
-                        if (!v) setDetail(null);
+                        if (!open)
+                        {
+                            setDetail(null);
+                        }
                     }}
                 >
                     <SheetContent className="detail-sheet">
@@ -1662,7 +1962,7 @@ export default function CollectionApp()
                                 <label className="check-label">
                                     <Checkbox
                                         checked={!!detailPref?.mustKeep}
-                                        onCheckedChange={v => void change(detailGame.id, { mustKeep: v === true })}
+                                        onCheckedChange={checked => void change(detailGame.id, { mustKeep: checked === true })}
                                     />
                                     Must keep
                                 </label>
@@ -1670,7 +1970,9 @@ export default function CollectionApp()
                                     Box size
                                     <Choice
                                         value={detailPref?.box == null ? 'unknown' : String(detailPref.box)}
-                                        onChange={v => void change(detailGame.id, { box: v === 'unknown' ? null : Number(v) })}
+                                        onChange={choice =>
+                                            void change(detailGame.id, { box: choice === 'unknown' ? null : Number(choice) })
+                                        }
                                         label="Box size"
                                     />
                                 </label>
@@ -1678,7 +1980,7 @@ export default function CollectionApp()
                                     Trade-in condition
                                     <ConditionChoice
                                         value={detailPref?.condition ?? DEFAULT_CONDITION}
-                                        onChange={v => void change(detailGame.id, { condition: v })}
+                                        onChange={condition => void change(detailGame.id, { condition: condition })}
                                         label="Trade-in condition"
                                     />
                                 </label>
@@ -1698,10 +2000,14 @@ export default function CollectionApp()
                                             step={key === 'personalRating' ? '.5' : '1'}
                                             value={(detailPref?.[key] === undefined ? detailGame[key] : detailPref[key]) ?? ''}
                                             placeholder="Unknown"
-                                            onChange={e =>
+                                            onChange={event =>
                                             {
-                                                const v = e.target.value === '' ? null : Number(e.target.value);
-                                                if (v === null || (v >= min && v <= max)) void change(detailGame.id, { [key]: v });
+                                                const newValue = event.target.value === '' ? null : Number(event.target.value);
+
+                                                if (newValue === null || (newValue >= min && newValue <= max))
+                                                {
+                                                    void change(detailGame.id, { [key]: newValue });
+                                                }
                                             }}
                                         />
                                     </label>
@@ -1711,7 +2017,7 @@ export default function CollectionApp()
                                         {key === 'group' ? 'Overlap group' : key[0].toUpperCase() + key.slice(1)}
                                         <Input
                                             value={detailPref?.[key] ?? detailGame[key]}
-                                            onChange={e => void change(detailGame.id, { [key]: e.target.value })}
+                                            onChange={event => void change(detailGame.id, { [key]: event.target.value })}
                                         />
                                     </label>
                                 ))}

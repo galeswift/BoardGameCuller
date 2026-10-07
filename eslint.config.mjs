@@ -33,7 +33,22 @@ const eslintConfig = defineConfig([
     ignores: FORMATTED.filter((p) => p.startsWith("!")).map((p) => p.slice(1)),
     plugins: { "@stylistic": stylistic },
     rules: {
-      "@stylistic/brace-style": ["error", "allman", { allowSingleLine: true }],
+      // Every if/else/for/while body in braces, each brace on its own line.
+      curly: ["error", "all"],
+      // One declaration per statement, never `const a = 1, b = 2`.
+      "one-var": ["error", "never"],
+      "@stylistic/brace-style": ["error", "allman"],
+      // Blank lines between logical steps: around blocks, after declarations,
+      // before returns, and between top-level definitions.
+      "@stylistic/padding-line-between-statements": [
+        "error",
+        { blankLine: "always", prev: "*", next: "return" },
+        { blankLine: "always", prev: ["const", "let", "var"], next: "*" },
+        { blankLine: "any", prev: ["const", "let", "var"], next: ["const", "let", "var"] },
+        { blankLine: "always", prev: "block-like", next: "*" },
+        { blankLine: "always", prev: "*", next: ["function", "export", "interface", "type"] },
+        { blankLine: "any", prev: "import", next: "import" },
+      ],
       // Re-indent after moving braces, and tidy what's left behind.
       "@stylistic/indent": ["error", 4, { SwitchCase: 1 }],
       "@stylistic/no-trailing-spaces": "error",

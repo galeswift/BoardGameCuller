@@ -18,6 +18,7 @@ export type Game = {
     parentName?: string;
     publisher?: string;
 };
+
 export type Preference = {
     thumb?: number;
     mustKeep?: boolean;
@@ -32,10 +33,14 @@ export type Preference = {
     notes?: string;
     condition?: Condition | null;
 };
+
 // Noble Knight trade-in conditions, in the order their template lists them.
 export const CONDITIONS = ['New', 'Unpunched', 'Used', 'Near Mint (Books Only)'] as const;
+
 export type Condition = (typeof CONDITIONS)[number];
+
 export const DEFAULT_CONDITION: Condition = 'Used';
+
 export type Settings = {
     target: number;
     ratingWeight: number;
@@ -47,7 +52,9 @@ export type Settings = {
     thumbWeight: number;
     preserve: boolean;
 };
+
 export type State = { games: Game[]; preferences: Record<string, Preference>; settings: Settings; savedAt: string | null };
+
 export const defaults: Settings = {
     target: 192,
     ratingWeight: 70,
@@ -59,305 +66,435 @@ export const defaults: Settings = {
     thumbWeight: 30,
     preserve: true,
 };
+
 export const nameKey = (name: string) => name.replace(/^(the |a |an )/i, '').toLowerCase();
 // Modeling choice, not a calibrated BGG conversion: a one-point increase in
 // weight doubles a difficulty proxy. Substitutes must be within 50% of one
 // another in that proxy (about 0.585 BGG weight points).
 const maxDifficultyRatio = 1.5;
-export function complexitySimilarity(a: number | null, b: number | null): number | null
+
+export function complexitySimilarity(weight: number | null, otherWeight: number | null): number | null
 {
-    if (a == null || b == null || !Number.isFinite(a) || !Number.isFinite(b) || a < 1 || a > 5 || b < 1 || b > 5) return null;
-    const relativeDifficultyGap = Math.expm1(Math.LN2 * Math.abs(a - b));
-    if (relativeDifficultyGap > maxDifficultyRatio - 1 + 1e-12) return null;
+    if (
+        weight == null ||
+        otherWeight == null ||
+        !Number.isFinite(weight) ||
+        !Number.isFinite(otherWeight) ||
+        weight < 1 ||
+        weight > 5 ||
+        otherWeight < 1 ||
+        otherWeight > 5
+    )
+    {
+        return null;
+    }
+
+    const relativeDifficultyGap = Math.expm1(Math.LN2 * Math.abs(weight - otherWeight));
+
+    if (relativeDifficultyGap > maxDifficultyRatio - 1 + 1e-12)
+    {
+        return null;
+    }
+
     return Math.max(0, 1 - relativeDifficultyGap / (maxDifficultyRatio - 1));
 }
+
 export function calculate(state: State)
 {
-    const s = state.settings;
-    const list = state.games
-        .filter(g => g.type === 'standalone')
-        .map(g =>
+    const settings = state.settings;
+    const scored = state.games
+        .filter(game => game.type === 'standalone')
+        .map(game =>
         {
-            const p = state.preferences[g.id] || {};
-            const merged = { ...g, ...p };
-            const rating = (p.personalRating === undefined ? g.personalRating : p.personalRating) ?? g.rating ?? 5;
-            const ratingPoints = Math.max(0, Math.min(1, (rating - 5) / 4)) * s.ratingWeight;
-            const low = Math.max(0, s.lowThreshold - rating) * s.lowPenalty;
-            const mean = merged.mean == null ? 0 : (merged.mean / 5) * s.meanWeight;
-            const box = p.box == null ? 0 : (p.box / 3) * s.boxWeight;
-            const bias = (p.thumb || 0) * s.thumbWeight;
+            const preference = state.preferences[game.id] || {};
+            const merged = { ...game, ...preference };
+            const rating = (preference.personalRating === undefined ? game.personalRating : preference.personalRating) ?? game.rating ?? 5;
+            const ratingPoints = Math.max(0, Math.min(1, (rating - 5) / 4)) * settings.ratingWeight;
+            const lowRatingPenalty = Math.max(0, settings.lowThreshold - rating) * settings.lowPenalty;
+            const meanPenalty = merged.mean == null ? 0 : (merged.mean / 5) * settings.meanWeight;
+            const boxPenalty = preference.box == null ? 0 : (preference.box / 3) * settings.boxWeight;
+            const bias = (preference.thumb || 0) * settings.thumbWeight;
+
             return {
                 ...merged,
-                p,
+                preference,
                 rating,
                 ratingPoints,
-                low,
-                meanPenalty: mean,
-                boxPenalty: box,
+                lowRatingPenalty,
+                meanPenalty,
+                boxPenalty,
                 bias,
-                priority: ratingPoints - low - mean - box + bias + (p.mustKeep ? 1000 : 0),
+                priority: ratingPoints - lowRatingPenalty - meanPenalty - boxPenalty + bias + (preference.mustKeep ? 1000 : 0),
                 overlap: 0,
                 similarity: 0,
                 alternative: '',
                 match: null as Match | null,
             };
         });
-    const groups = new Map<string, typeof list>();
-    for (const g of list)
+
+    // Games only overlap within the same play group and mode.
+    const groups = new Map<string, typeof scored>();
+
+    for (const game of scored)
     {
-        if (!g.group) continue;
-        const key = g.group + '|' + g.mode;
-        const a = groups.get(key) || [];
-        a.push(g);
-        groups.set(key, a);
+        if (!game.group)
+        {
+            continue;
+        }
+
+        const groupKey = game.group + '|' + game.mode;
+        const members = groups.get(groupKey) || [];
+
+        members.push(game);
+        groups.set(groupKey, members);
     }
+
     const representatives = new Set<string>();
-    for (const a of groups.values())
+
+    for (const members of groups.values())
     {
-        if (a.length < 2) continue;
-        const remaining = [...a].sort((a, b) => b.priority - a.priority || Number(b.id) - Number(a.id));
+        if (members.length < 2)
+        {
+            continue;
+        }
+
+        const remaining = [...members].sort((a, b) => b.priority - a.priority || Number(b.id) - Number(a.id));
+
         while (remaining.length)
         {
-            const rep = remaining.shift()!;
+            const representative = remaining.shift()!;
             // Compare each peer directly with its representative. Do not allow a chain
             // of intermediate weights to join light and heavy games into one cluster.
-            const peers = remaining.filter(g => complexitySimilarity(g.complexity, rep.complexity) != null);
-            if (!peers.length) continue;
-            if (s.preserve && (rep.p.thumb || 0) !== -1) representatives.add(rep.id);
-            for (const g of peers)
+            const peers = remaining.filter(peer => complexitySimilarity(peer.complexity, representative.complexity) != null);
+
+            if (!peers.length)
             {
-                remaining.splice(remaining.indexOf(g), 1);
-                const duration = g.minutes && rep.minutes ? Math.min(g.minutes, rep.minutes) / Math.max(g.minutes, rep.minutes) : 0;
-                const weight = complexitySimilarity(g.complexity, rep.complexity)!;
-                const players =
-                    g.minPlayers && g.maxPlayers && rep.minPlayers && rep.maxPlayers
-                        ? Math.max(0, Math.min(g.maxPlayers, rep.maxPlayers) - Math.max(g.minPlayers, rep.minPlayers) + 1) /
-                          (Math.max(g.maxPlayers, rep.maxPlayers) - Math.min(g.minPlayers, rep.minPlayers) + 1)
+                continue;
+            }
+
+            if (settings.preserve && (representative.preference.thumb || 0) !== -1)
+            {
+                representatives.add(representative.id);
+            }
+
+            for (const peer of peers)
+            {
+                remaining.splice(remaining.indexOf(peer), 1);
+                const duration =
+                    peer.minutes && representative.minutes
+                        ? Math.min(peer.minutes, representative.minutes) / Math.max(peer.minutes, representative.minutes)
                         : 0;
-                const sameTheme = !!g.theme && g.theme === rep.theme;
-                g.similarity = Math.min(1, 0.4 + (sameTheme ? 0.15 : 0) + 0.2 * duration + 0.15 * weight + 0.1 * players);
-                g.match = { sameTheme, duration, weight, players };
-                g.overlap = s.overlapWeight * Math.max(0, (g.similarity - 0.55) / 0.45);
-                g.alternative = rep.id;
+                const weight = complexitySimilarity(peer.complexity, representative.complexity)!;
+                const players =
+                    peer.minPlayers && peer.maxPlayers && representative.minPlayers && representative.maxPlayers
+                        ? Math.max(
+                            0,
+                            Math.min(peer.maxPlayers, representative.maxPlayers) -
+                                  Math.max(peer.minPlayers, representative.minPlayers) +
+                                  1
+                        ) /
+                          (Math.max(peer.maxPlayers, representative.maxPlayers) - Math.min(peer.minPlayers, representative.minPlayers) + 1)
+                        : 0;
+                const sameTheme = !!peer.theme && peer.theme === representative.theme;
+
+                peer.similarity = Math.min(1, 0.4 + (sameTheme ? 0.15 : 0) + 0.2 * duration + 0.15 * weight + 0.1 * players);
+                peer.match = { sameTheme, duration, weight, players };
+                peer.overlap = settings.overlapWeight * Math.max(0, (peer.similarity - 0.55) / 0.45);
+                peer.alternative = representative.id;
             }
         }
     }
-    const ranked = list
-        .map(g => ({
-            ...g,
-            protected: !!g.p.mustKeep || representatives.has(g.id),
-            representative: representatives.has(g.id),
-            score: g.ratingPoints - g.low - g.meanPenalty - g.boxPenalty + g.bias - g.overlap,
+
+    const ranked = scored
+        .map(game => ({
+            ...game,
+            protected: !!game.preference.mustKeep || representatives.has(game.id),
+            representative: representatives.has(game.id),
+            score: game.ratingPoints - game.lowRatingPenalty - game.meanPenalty - game.boxPenalty + game.bias - game.overlap,
         }))
         .sort((a, b) => Number(b.protected) - Number(a.protected) || b.score - a.score || Number(a.id) - Number(b.id));
-    const protectedCount = ranked.filter(g => g.protected).length;
-    const keepCount = Math.min(ranked.length, Math.max(s.target, protectedCount));
-    const kept = new Set(ranked.slice(0, keepCount).map(g => g.id));
+    const protectedCount = ranked.filter(game => game.protected).length;
+    const keepCount = Math.min(ranked.length, Math.max(settings.target, protectedCount));
+    const kept = new Set(ranked.slice(0, keepCount).map(game => game.id));
     const cull = ranked.slice(keepCount).reverse();
+
     return { ranked, cull, kept, keepCount, protectedCount };
 }
+
 type Match = { sameTheme: boolean; duration: number; weight: number; players: number };
+
 export type Scored = ReturnType<typeof calculate>['ranked'][number];
+
 export type FactorKind =
     'mustKeep' | 'representative' | 'thumbUp' | 'thumbDown' | 'rating' | 'lowRating' | 'overlap' | 'mean' | 'box' | 'cutoff';
+
 /** One reason behind a game's keep score. `impact` is signed keep-score points (negative pushes toward the cull list). */
 export type Factor = { kind: FactorKind; impact: number; badge: string; title: string; lines: string[]; alternativeId?: string };
-const pts = (n: number) => `${n < 0 ? '−' : '+'}${Math.abs(n).toFixed(1)}`;
-const pct = (n: number) => `${Math.round(n * 100)}%`;
-const players = (g: Game) =>
-    g.minPlayers && g.maxPlayers ? (g.minPlayers === g.maxPlayers ? `${g.minPlayers}` : `${g.minPlayers}–${g.maxPlayers}`) : '?';
+const signedPoints = (points: number) => `${points < 0 ? '−' : '+'}${Math.abs(points).toFixed(1)}`;
+const percent = (fraction: number) => `${Math.round(fraction * 100)}%`;
+const playerRange = (game: Game) =>
+    game.minPlayers && game.maxPlayers
+        ? game.minPlayers === game.maxPlayers
+            ? `${game.minPlayers}`
+            : `${game.minPlayers}–${game.maxPlayers}`
+        : '?';
+
 /** Every factor behind a game's keep score, protections first, then by size of effect. */
-export function keepFactors(g: Scored, state: State, result: ReturnType<typeof calculate>): Factor[]
+export function keepFactors(game: Scored, state: State, result: ReturnType<typeof calculate>): Factor[]
 {
-    const s = state.settings,
-        out: Factor[] = [];
-    if (g.p.mustKeep)
-        out.push({ kind: 'mustKeep', impact: 0, badge: '', title: 'Must keep', lines: ['You marked this game to always keep.'] });
-    if (g.representative)
-        out.push({
+    const settings = state.settings;
+    const factors: Factor[] = [];
+
+    if (game.preference.mustKeep)
+    {
+        factors.push({ kind: 'mustKeep', impact: 0, badge: '', title: 'Must keep', lines: ['You marked this game to always keep.'] });
+    }
+
+    if (game.representative)
+    {
+        factors.push({
             kind: 'representative',
             impact: 0,
             badge: '',
             title: 'Group representative',
             lines: [
-                `Highest-scoring game among similar ${g.group} (${g.mode || 'any mode'}) games.`,
+                `Highest-scoring game among similar ${game.group} (${game.mode || 'any mode'}) games.`,
                 'Protected so this kind of game stays on your shelf.',
             ],
         });
-    if (g.bias > 0)
-        out.push({
+    }
+
+    if (game.bias > 0)
+    {
+        factors.push({
             kind: 'thumbUp',
-            impact: g.bias,
-            badge: pts(g.bias),
+            impact: game.bias,
+            badge: signedPoints(game.bias),
             title: 'Your thumbs up',
-            lines: [`Adds ${g.bias.toFixed(1)} keep points.`],
+            lines: [`Adds ${game.bias.toFixed(1)} keep points.`],
         });
-    if (g.bias < 0)
-        out.push({
+    }
+
+    if (game.bias < 0)
+    {
+        factors.push({
             kind: 'thumbDown',
-            impact: g.bias,
-            badge: pts(g.bias),
+            impact: game.bias,
+            badge: signedPoints(game.bias),
             title: 'Your thumbs down',
-            lines: [`Removes ${(-g.bias).toFixed(1)} keep points.`],
+            lines: [`Removes ${(-game.bias).toFixed(1)} keep points.`],
         });
-    const missed = s.ratingWeight - g.ratingPoints;
-    if (missed >= 0.5)
-        out.push({
+    }
+
+    const missedRatingPoints = settings.ratingWeight - game.ratingPoints;
+
+    if (missedRatingPoints >= 0.5)
+    {
+        factors.push({
             kind: 'rating',
-            impact: -missed,
-            badge: g.rating.toFixed(1),
-            title: `Rating ${g.rating.toFixed(1)}/10`,
+            impact: -missedRatingPoints,
+            badge: game.rating.toFixed(1),
+            title: `Rating ${game.rating.toFixed(1)}/10`,
             lines: [
-                g.personalRating == null ? 'BGG average. Add your own rating in the game details to override it.' : 'Your personal rating.',
-                `Earns ${g.ratingPoints.toFixed(1)} of ${s.ratingWeight} rating points (full points at 9/10).`,
+                game.personalRating == null
+                    ? 'BGG average. Add your own rating in the game details to override it.'
+                    : 'Your personal rating.',
+                `Earns ${game.ratingPoints.toFixed(1)} of ${settings.ratingWeight} rating points (full points at 9/10).`,
             ],
         });
-    if (g.low > 0)
-        out.push({
+    }
+
+    if (game.lowRatingPenalty > 0)
+    {
+        factors.push({
             kind: 'lowRating',
-            impact: -g.low,
-            badge: pts(-g.low),
+            impact: -game.lowRatingPenalty,
+            badge: signedPoints(-game.lowRatingPenalty),
             title: 'Below your rating threshold',
             lines: [
-                `${g.rating.toFixed(1)}/10 is ${(s.lowThreshold - g.rating).toFixed(1)} below your ${s.lowThreshold.toFixed(1)} threshold.`,
-                `${s.lowPenalty} points off per point below: ${pts(-g.low)}.`,
+                `${game.rating.toFixed(1)}/10 is ${(settings.lowThreshold - game.rating).toFixed(1)} below your ${settings.lowThreshold.toFixed(1)} threshold.`,
+                `${settings.lowPenalty} points off per point below: ${signedPoints(-game.lowRatingPenalty)}.`,
             ],
         });
-    const alt = result.ranked.find(o => o.id === g.alternative);
-    if (g.overlap > 0 && alt && g.match)
+    }
+
+    const alternative = result.ranked.find(other => other.id === game.alternative);
+
+    if (game.overlap > 0 && alternative && game.match)
     {
-        const m = g.match;
-        out.push({
+        const match = game.match;
+
+        factors.push({
             kind: 'overlap',
-            impact: -g.overlap,
-            badge: pts(-g.overlap),
-            title: `Similar to ${alt.name}`,
-            alternativeId: alt.id,
+            impact: -game.overlap,
+            badge: signedPoints(-game.overlap),
+            title: `Similar to ${alternative.name}`,
+            alternativeId: alternative.id,
             lines: [
-                result.kept.has(alt.id)
-                    ? `You’re keeping ${alt.name}, which covers the same play experience.`
-                    : `${alt.name} is also a cull candidate.`,
-                `Same group: ${g.group}${g.mode ? ` · ${g.mode}` : ''}`,
-                `Weight ${g.complexity?.toFixed(2)} vs ${alt.complexity?.toFixed(2)} · ${pct(m.weight)} match`,
-                m.sameTheme ? `Same theme: ${g.theme}` : `Different theme: ${g.theme || 'unset'} vs ${alt.theme || 'unset'}`,
-                g.minutes && alt.minutes
-                    ? `Length ${g.minutes} vs ${alt.minutes} min · ${pct(m.duration)} match`
+                result.kept.has(alternative.id)
+                    ? `You’re keeping ${alternative.name}, which covers the same play experience.`
+                    : `${alternative.name} is also a cull candidate.`,
+                `Same group: ${game.group}${game.mode ? ` · ${game.mode}` : ''}`,
+                `Weight ${game.complexity?.toFixed(2)} vs ${alternative.complexity?.toFixed(2)} · ${percent(match.weight)} match`,
+                match.sameTheme
+                    ? `Same theme: ${game.theme}`
+                    : `Different theme: ${game.theme || 'unset'} vs ${alternative.theme || 'unset'}`,
+                game.minutes && alternative.minutes
+                    ? `Length ${game.minutes} vs ${alternative.minutes} min · ${percent(match.duration)} match`
                     : 'Length unknown for one game',
-                `Players ${players(g)} vs ${players(alt)} · ${pct(m.players)} overlap`,
-                `Similarity ${pct(g.similarity)} (deductions start above 55%): ${pts(-g.overlap)}`,
+                `Players ${playerRange(game)} vs ${playerRange(alternative)} · ${percent(match.players)} overlap`,
+                `Similarity ${percent(game.similarity)} (deductions start above 55%): ${signedPoints(-game.overlap)}`,
                 'Click to open the similar game.',
             ],
         });
     }
-    if (g.meanPenalty > 0)
-        out.push({
-            kind: 'mean',
-            impact: -g.meanPenalty,
-            badge: pts(-g.meanPenalty),
-            title: `Mean interaction ${g.mean}/5`,
-            lines: ['Draft rating of how much players attack or block each other.', `Costs ${g.meanPenalty.toFixed(1)} keep points.`],
-        });
-    if (g.boxPenalty > 0)
-        out.push({
-            kind: 'box',
-            impact: -g.boxPenalty,
-            badge: pts(-g.boxPenalty),
-            title: `${['Small', 'Standard', 'Large', 'Oversized'][g.p.box!]} box`,
-            lines: [`Shelf-space deduction: ${pts(-g.boxPenalty)}.`],
-        });
-    if (!result.kept.has(g.id) && !out.some(f => f.impact < 0))
+
+    if (game.meanPenalty > 0)
     {
-        const rank = result.ranked.findIndex(o => o.id === g.id) + 1;
-        out.push({
+        factors.push({
+            kind: 'mean',
+            impact: -game.meanPenalty,
+            badge: signedPoints(-game.meanPenalty),
+            title: `Mean interaction ${game.mean}/5`,
+            lines: ['Draft rating of how much players attack or block each other.', `Costs ${game.meanPenalty.toFixed(1)} keep points.`],
+        });
+    }
+
+    if (game.boxPenalty > 0)
+    {
+        factors.push({
+            kind: 'box',
+            impact: -game.boxPenalty,
+            badge: signedPoints(-game.boxPenalty),
+            title: `${['Small', 'Standard', 'Large', 'Oversized'][game.preference.box!]} box`,
+            lines: [`Shelf-space deduction: ${signedPoints(-game.boxPenalty)}.`],
+        });
+    }
+
+    if (!result.kept.has(game.id) && !factors.some(factor => factor.impact < 0))
+    {
+        const rank = result.ranked.findIndex(other => other.id === game.id) + 1;
+
+        factors.push({
             kind: 'cutoff',
             impact: 0,
             badge: `#${rank}`,
             title: 'Just below the keep cutoff',
             lines: [
-                `Ranks #${rank} of ${result.ranked.length} by keep score (${g.score.toFixed(1)}).`,
-                `You’re keeping the top ${result.keepCount} (target ${s.target}).`,
+                `Ranks #${rank} of ${result.ranked.length} by keep score (${game.score.toFixed(1)}).`,
+                `You’re keeping the top ${result.keepCount} (target ${settings.target}).`,
             ],
         });
     }
-    const order = (f: Factor) => (f.kind === 'mustKeep' ? 0 : f.kind === 'representative' ? 1 : 2);
-    return out.sort((a, b) => order(a) - order(b) || Math.abs(b.impact) - Math.abs(a.impact));
+
+    const order = (factor: Factor) => (factor.kind === 'mustKeep' ? 0 : factor.kind === 'representative' ? 1 : 2);
+
+    return factors.sort((a, b) => order(a) - order(b) || Math.abs(b.impact) - Math.abs(a.impact));
 }
+
 /** Plain-text summary of the factors, for the CSV export. */
-export function cullExplanation(g: Scored, state: State, result: ReturnType<typeof calculate>)
+export function cullExplanation(game: Scored, state: State, result: ReturnType<typeof calculate>)
 {
-    return keepFactors(g, state, result)
-        .filter(f => f.impact < 0 || f.kind === 'cutoff')
-        .map(f => (f.badge ? `${f.title} (${f.badge})` : f.title))
+    return keepFactors(game, state, result)
+        .filter(factor => factor.impact < 0 || factor.kind === 'cutoff')
+        .map(factor => (factor.badge ? `${factor.title} (${factor.badge})` : factor.title))
         .join('; ');
 }
+
 export function parseCSV(text: string)
 {
     const rows: string[][] = [];
-    let row: string[] = [],
-        cell = '',
-        quoted = false;
-    for (let i = 0; i < text.length; i++)
+    let row: string[] = [];
+    let cell = '';
+    let quoted = false;
+
+    for (let index = 0; index < text.length; index++)
     {
-        const c = text[i];
-        if (c === '"')
+        const char = text[index];
+
+        if (char === '"')
         {
-            if (quoted && text[i + 1] === '"')
+            if (quoted && text[index + 1] === '"')
             {
                 cell += '"';
-                i++;
+                index++;
             }
-            else quoted = !quoted;
+            else
+            {
+                quoted = !quoted;
+            }
         }
-        else if (c === ',' && !quoted)
+        else if (char === ',' && !quoted)
         {
             row.push(cell);
             cell = '';
         }
-        else if ((c === '\n' || c === '\r') && !quoted)
+        else if ((char === '\n' || char === '\r') && !quoted)
         {
-            if (c === '\r' && text[i + 1] === '\n') i++;
+            if (char === '\r' && text[index + 1] === '\n')
+            {
+                index++;
+            }
+
             row.push(cell);
-            if (row.some(Boolean)) rows.push(row);
+            if (row.some(Boolean))
+            {
+                rows.push(row);
+            }
+
             row = [];
             cell = '';
         }
-        else cell += c;
+        else
+        {
+            cell += char;
+        }
     }
-    if (quoted) throw new Error('CSV contains an unclosed quoted field.');
+
+    if (quoted)
+    {
+        throw new Error('CSV contains an unclosed quoted field.');
+    }
+
     row.push(cell);
-    if (row.some(Boolean)) rows.push(row);
-    const headers =
-        rows.shift()?.map(x =>
-            x
-                .replace(/^\uFEFF/, '')
-                .trim()
-                .toLowerCase()
-        ) || [];
-    return rows.map(r => Object.fromEntries(headers.map((h, i) => [h, r[i] || ''])));
+    if (row.some(Boolean))
+    {
+        rows.push(row);
+    }
+
+    const headers = rows.shift()?.map(header => header.replace(/^﻿/, '').trim().toLowerCase()) || [];
+
+    return rows.map(values => Object.fromEntries(headers.map((header, index) => [header, values[index] || ''])));
 }
+
 export function collectionFromCSV(text: string, previous: Game[])
 {
     const rows = parseCSV(text);
+
     if (!rows.length || !('objectid' in rows[0]) || !('objectname' in rows[0]))
+    {
         throw new Error('Upload a BGG collection CSV with objectid and objectname columns.');
-    const old = new Map(previous.map(g => [g.id, g]));
-    const num = (v: string) => Number(v) || null;
+    }
+
+    const previousById = new Map(previous.map(game => [game.id, game]));
+    const toNumber = (cell: string) => Number(cell) || null;
     const games: Game[] = rows
-        .filter(r => r.own === '1')
-        .map(r =>
+        .filter(row => row.own === '1')
+        .map(row =>
         {
-            const prior = old.get(r.objectid);
+            const prior = previousById.get(row.objectid);
+
             return {
-                id: r.objectid,
-                name: r.objectname,
-                type: r.itemtype === 'expansion' ? 'expansion' : 'standalone',
-                rating: num(r.average),
-                personalRating: num(r.rating),
-                complexity: num(r.avgweight),
-                minutes: prior?.minutes ?? num(r.maxplaytime),
-                minPlayers: num(r.minplayers),
-                maxPlayers: num(r.maxplayers),
-                bestPlayers: r.bggbestplayers,
+                id: row.objectid,
+                name: row.objectname,
+                type: row.itemtype === 'expansion' ? 'expansion' : 'standalone',
+                rating: toNumber(row.average),
+                personalRating: toNumber(row.rating),
+                complexity: toNumber(row.avgweight),
+                minutes: prior?.minutes ?? toNumber(row.maxplaytime),
+                minPlayers: toNumber(row.minplayers),
+                maxPlayers: toNumber(row.maxplayers),
+                bestPlayers: row.bggbestplayers,
                 mean: prior?.mean ?? null,
                 group: prior?.group || '',
                 theme: prior?.theme || '',
@@ -368,7 +505,16 @@ export function collectionFromCSV(text: string, previous: Game[])
                 publisher: prior?.publisher || '',
             };
         });
-    if (!games.length) throw new Error('No owned games found in this CSV.');
-    if (new Set(games.map(g => g.id)).size !== games.length) throw new Error('Duplicate BGG IDs found. Export one entry per game.');
+
+    if (!games.length)
+    {
+        throw new Error('No owned games found in this CSV.');
+    }
+
+    if (new Set(games.map(game => game.id)).size !== games.length)
+    {
+        throw new Error('Duplicate BGG IDs found. Export one entry per game.');
+    }
+
     return games;
 }

@@ -6,9 +6,12 @@ import type { Game } from '@/lib/model';
 export async function createTestDb()
 {
     const pg = new PGlite();
+
     await pg.exec(SCHEMA);
     const query = (sql: string, params?: unknown[]) => pg.query(sql, params);
-    const pool = { query, connect: async () => ({ query, release() {} }) };
+    const pool = { query, connect: async () => ({ query, release()
+    {} }) };
+
     return { pg, pool };
 }
 
@@ -17,9 +20,21 @@ export const ORIGIN = 'http://cull.test';
 export function apiRequest(path: string, init: { method?: string; body?: unknown; origin?: string } = {})
 {
     const headers: Record<string, string> = { host: 'cull.test' };
-    if (init.origin !== undefined) headers.origin = init.origin;
-    else if (init.method === 'POST') headers.origin = ORIGIN;
-    if (init.body !== undefined) headers['content-type'] = 'application/json';
+
+    if (init.origin !== undefined)
+    {
+        headers.origin = init.origin;
+    }
+    else if (init.method === 'POST')
+    {
+        headers.origin = ORIGIN;
+    }
+
+    if (init.body !== undefined)
+    {
+        headers['content-type'] = 'application/json';
+    }
+
     return new Request(ORIGIN + path, {
         method: init.method ?? 'GET',
         headers,

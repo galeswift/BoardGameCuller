@@ -3,6 +3,7 @@ import { nameKey, type Scored } from './model';
 // Sorting for the All Games list. Each key has the direction that's most useful
 // on first click; clicking the same column again reverses it.
 export type SortKey = 'reviewed' | 'name' | 'rating' | 'thumb' | 'box' | 'keep' | 'weight' | 'time';
+
 export type Sort = { key: SortKey; dir: 1 | -1 };
 
 export const SORTS: Record<SortKey, { label: string; dir: 1 | -1; up: string; down: string }> = {
@@ -15,33 +16,35 @@ export const SORTS: Record<SortKey, { label: string; dir: 1 | -1; up: string; do
     weight: { label: 'BGG weight', dir: 1, up: 'lightest first', down: 'heaviest first' },
     time: { label: 'Play time', dir: 1, up: 'shortest first', down: 'longest first' },
 };
+
 export const DEFAULT_SORT: Sort = { key: 'name', dir: 1 };
 
 /** Click on a column: a new column starts in its natural direction, the same column flips. */
 export const nextSort = (current: Sort, key: SortKey): Sort =>
     current.key === key ? { key, dir: current.dir === 1 ? -1 : 1 } : { key, dir: SORTS[key].dir };
-export const describeSort = (s: Sort) => `${SORTS[s.key].label}, ${s.dir === 1 ? SORTS[s.key].up : SORTS[s.key].down}`;
 
-function value(g: Scored, key: SortKey): number | string | null
+export const describeSort = (sort: Sort) => `${SORTS[sort.key].label}, ${sort.dir === 1 ? SORTS[sort.key].up : SORTS[sort.key].down}`;
+
+function value(game: Scored, key: SortKey): number | string | null
 {
     switch (key)
     {
         case 'name':
-            return nameKey(g.name);
+            return nameKey(game.name);
         case 'reviewed':
-            return g.p.reviewed ? 1 : 0;
+            return game.preference.reviewed ? 1 : 0;
         case 'rating':
-            return g.rating;
+            return game.rating;
         case 'thumb':
-            return g.p.thumb ?? 0;
+            return game.preference.thumb ?? 0;
         case 'box':
-            return g.p.box ?? null;
+            return game.preference.box ?? null;
         case 'keep':
-            return g.p.mustKeep ? 1 : 0;
+            return game.preference.mustKeep ? 1 : 0;
         case 'weight':
-            return g.complexity;
+            return game.complexity;
         case 'time':
-            return g.minutes;
+            return game.minutes;
     }
 }
 
@@ -50,14 +53,26 @@ export function sortGames<T extends Scored>(games: T[], { key, dir }: Sort): T[]
 {
     return [...games].sort((a, b) =>
     {
-        const va = value(a, key),
-            vb = value(b, key);
-        if (va == null || vb == null)
+        const valueA = value(a, key);
+        const valueB = value(b, key);
+
+        if (valueA == null || valueB == null)
         {
-            if (va != null) return -1;
-            if (vb != null) return 1;
+            if (valueA != null)
+            {
+                return -1;
+            }
+
+            if (valueB != null)
+            {
+                return 1;
+            }
         }
-        else if (va !== vb) return (typeof va === 'string' ? va.localeCompare(vb as string) : va - (vb as number)) * dir;
+        else if (valueA !== valueB)
+        {
+            return (typeof valueA === 'string' ? valueA.localeCompare(valueB as string) : valueA - (valueB as number)) * dir;
+        }
+
         return nameKey(a.name).localeCompare(nameKey(b.name));
     });
 }

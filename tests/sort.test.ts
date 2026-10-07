@@ -14,7 +14,7 @@ const ranked = (prefs: Record<string, Preference> = {}) =>
         settings: { ...defaults, target: 3 },
         savedAt: null,
     }).ranked;
-const names = (games: { name: string }[]) => games.map(g => g.name);
+const names = (games: { name: string }[]) => games.map(entry => entry.name);
 
 describe('sortGames', () =>
 {
@@ -27,6 +27,7 @@ describe('sortGames', () =>
     it('sorts by rating, preference, reviewed and must keep', () =>
     {
         const prefs = { '1': { thumb: 1, reviewed: true }, '2': { thumb: -1, mustKeep: true }, '3': { personalRating: 6 } };
+
         expect(names(sortGames(ranked(prefs), { key: 'rating', dir: -1 }))).toEqual(['The Crew', 'Azul', 'Brass']);
         expect(names(sortGames(ranked(prefs), { key: 'thumb', dir: -1 }))).toEqual(['The Crew', 'Brass', 'Azul']);
         expect(names(sortGames(ranked(prefs), { key: 'reviewed', dir: 1 }))).toEqual(['Azul', 'Brass', 'The Crew']);
@@ -36,6 +37,7 @@ describe('sortGames', () =>
     it('puts unknown box sizes, weights and play times last in either direction', () =>
     {
         const prefs = { '1': { box: 0 }, '3': { box: 3 } };
+
         expect(names(sortGames(ranked(prefs), { key: 'box', dir: -1 }))).toEqual(['Brass', 'The Crew', 'Azul']);
         expect(names(sortGames(ranked(prefs), { key: 'box', dir: 1 }))).toEqual(['The Crew', 'Brass', 'Azul']);
         expect(names(sortGames(ranked(), { key: 'weight', dir: 1 })).at(-1)).toBe('Azul');
@@ -46,6 +48,7 @@ describe('sortGames', () =>
     {
         const list = ranked();
         const before = names(list);
+
         sortGames(list, { key: 'rating', dir: -1 });
         expect(names(list)).toEqual(before);
     });

@@ -6,21 +6,30 @@ import { preferencePatch, settingsPatch, validateGames } from '@/lib/validation'
 import { preferenceWrite } from '@/lib/preference-sql';
 import { defaultProfile, resolveProfile } from '@/lib/profile';
 import { aiConfigured } from '@/lib/openai';
+
 export const dynamic = 'force-dynamic';
-const json = (v: unknown, status = 200) => Response.json(v, { status, headers: { 'Cache-Control': 'no-store' } });
+const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
+
 export async function GET(request: Request)
 {
     const user = await getUser();
-    if (!user) return json({ error: 'Sign in to load your saved collection.' }, 401);
+
+    if (!user)
+    {
+        return json({ error: 'Sign in to load your saved collection.' }, 401);
+    }
+
     let profile;
+
     try
     {
         profile = resolveProfile(new URL(request.url).searchParams.get('profile'));
     }
-    catch (e)
+    catch (error)
     {
-        return json({ error: (e as Error).message }, 400);
+        return json({ error: (error as Error).message }, 400);
     }
+
     try
     {
         const db = await getDb();
@@ -35,62 +44,97 @@ export async function GET(request: Request)
             ),
             db.query<{ owner: string }>('SELECT owner FROM collection_state ORDER BY owner'),
         ]);
-        const s = state.rows[0];
-        const timestamps = [s?.updated, ...prefs.rows.map(p => p.updated)].filter(Boolean).sort();
+        const saved = state.rows[0];
+        const timestamps = [saved?.updated, ...prefs.rows.map(row => row.updated)].filter(Boolean).sort();
+
         return json({
             profile,
             defaultProfile: defaultProfile(),
             aiAvailable: aiConfigured(),
-            profiles: [...new Set([defaultProfile(), ...owners.rows.map(o => o.owner)])].sort(),
-            games: s?.games ?? (profile === defaultProfile() ? seed : []),
-            settings: { ...defaults, ...s?.settings },
-            preferences: Object.fromEntries(prefs.rows.map(p => [p.game_id, p.data])),
+            profiles: [...new Set([defaultProfile(), ...owners.rows.map(row => row.owner)])].sort(),
+            games: saved?.games ?? (profile === defaultProfile() ? seed : []),
+            settings: { ...defaults, ...saved?.settings },
+            preferences: Object.fromEntries(prefs.rows.map(row => [row.game_id, row.data])),
             savedAt: timestamps.at(-1) || null,
         });
     }
-    catch (e)
+    catch (error)
     {
-        console.error('Collection load failed', e);
+        console.error('Collection load failed', error);
+
         return json({ error: 'Your saved collection is temporarily unavailable. Please retry.' }, 503);
     }
 }
+
 export async function POST(request: Request)
 {
     const user = await getUser();
-    if (!user) return json({ error: 'Sign in before saving preferences.' }, 401);
-    if (!sameOrigin(request)) return json({ error: 'Request origin does not match.' }, 403);
-    if (Number(request.headers.get('content-length') || 0) > 1500000) return json({ error: 'Import is too large.' }, 413);
+
+    if (!user)
+    {
+        return json({ error: 'Sign in before saving preferences.' }, 401);
+    }
+
+    if (!sameOrigin(request))
+    {
+        return json({ error: 'Request origin does not match.' }, 403);
+    }
+
+    if (Number(request.headers.get('content-length') || 0) > 1500000)
+    {
+        return json({ error: 'Import is too large.' }, 413);
+    }
+
     let payload;
+
     try
     {
         const text = await request.text();
-        if (text.length > 1500000) return json({ error: 'Import is too large.' }, 413);
+
+        if (text.length > 1500000)
+        {
+            return json({ error: 'Import is too large.' }, 413);
+        }
+
         payload = JSON.parse(text);
     }
     catch
     {
         return json({ error: 'Invalid request.' }, 400);
     }
+
     try
     {
-        const db = await getDb(),
-            now = new Date().toISOString(),
-            owner = resolveProfile(payload.profile);
-        const preferenceStatement = (id: string, p: unknown) =>
+        const db = await getDb();
+        const now = new Date().toISOString();
+        const owner = resolveProfile(payload.profile);
+        const preferenceStatement = (id: string, rawPatch: unknown) =>
         {
-            if (typeof id !== 'string' || !/^\d{1,10}$/.test(id)) throw new Error('Invalid BGG ID.');
-            const patch = preferencePatch(p);
-            if (!Object.keys(patch).length) throw new Error('Invalid empty preference.');
+            if (typeof id !== 'string' || !/^\d{1,10}$/.test(id))
+            {
+                throw new Error('Invalid BGG ID.');
+            }
+
+            const patch = preferencePatch(rawPatch);
+
+            if (!Object.keys(patch).length)
+            {
+                throw new Error('Invalid empty preference.');
+            }
+
             return preferenceWrite(owner, id, patch as Record<string, unknown>, now);
         };
+
         if (payload.action === 'preference')
         {
-            const s = preferenceStatement(payload.id, payload.patch);
-            await db.query(s.sql, s.values);
+            const statement = preferenceStatement(payload.id, payload.patch);
+
+            await db.query(statement.sql, statement.values);
         }
         else if (payload.action === 'settings')
         {
             const patch = settingsPatch(payload.patch);
+
             await db.query(
                 'INSERT INTO collection_state(owner,settings,updated) VALUES($1,$2::jsonb,$3) ON CONFLICT(owner) DO UPDATE SET settings=collection_state.settings||excluded.settings,updated=excluded.updated',
                 [owner, JSON.stringify(patch), now]
@@ -99,6 +143,7 @@ export async function POST(request: Request)
         else if (payload.action === 'collection')
         {
             const games = validateGames(payload.games);
+
             await db.query(
                 "INSERT INTO collection_state(owner,settings,games,updated) VALUES($1,'{}',$2::jsonb,$3) ON CONFLICT(owner) DO UPDATE SET games=excluded.games,updated=excluded.updated",
                 [owner, JSON.stringify(games), now]
@@ -106,34 +151,48 @@ export async function POST(request: Request)
         }
         else if (payload.action === 'restore')
         {
-            const b = payload.backup;
-            if (b?.format !== 'collection-cull-v1') throw new Error('Choose a Collection Cull backup.');
-            const games = validateGames(b.games),
-                s = settingsPatch(b.settings),
-                prefs = b.preferences;
+            const backup = payload.backup;
+
+            if (backup?.format !== 'collection-cull-v1')
+            {
+                throw new Error('Choose a Collection Cull backup.');
+            }
+
+            const games = validateGames(backup.games);
+            const restoredSettings = settingsPatch(backup.settings);
+            const prefs = backup.preferences;
+
             if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs) || Object.keys(prefs).length > 2000)
+            {
                 throw new Error('Invalid preferences backup.');
+            }
+
             const statements = [
                 {
                     sql: 'INSERT INTO collection_state(owner,settings,games,updated) VALUES($1,$2::jsonb,$3::jsonb,$4) ON CONFLICT(owner) DO UPDATE SET settings=excluded.settings,games=excluded.games,updated=excluded.updated',
-                    values: [owner, JSON.stringify(s), JSON.stringify(games), now],
+                    values: [owner, JSON.stringify(restoredSettings), JSON.stringify(games), now],
                 },
                 { sql: 'DELETE FROM preferences WHERE owner=$1', values: [owner] },
                 ...Object.entries(prefs)
-                    .filter(([, p]) => Object.keys(p as object).length > 0)
-                    .map(([id, p]) => preferenceStatement(id, p)),
+                    .filter(([, patch]) => Object.keys(patch as object).length > 0)
+                    .map(([id, patch]) => preferenceStatement(id, patch)),
             ];
             const client = await db.connect();
+
             try
             {
                 await client.query('BEGIN');
-                for (const st of statements) await client.query(st.sql, st.values);
+                for (const statement of statements)
+                {
+                    await client.query(statement.sql, statement.values);
+                }
+
                 await client.query('COMMIT');
             }
-            catch (e)
+            catch (error)
             {
                 await client.query('ROLLBACK');
-                throw e;
+                throw error;
             }
             finally
             {
@@ -143,8 +202,13 @@ export async function POST(request: Request)
         else if (payload.action === 'remove')
         {
             // Deletes this app's copy of a collection (games, choices, settings). BGG isn't touched.
-            if (owner === defaultProfile()) throw new Error('Collection ' + owner + ' is the default and can’t be removed.');
+            if (owner === defaultProfile())
+            {
+                throw new Error('Collection ' + owner + ' is the default and can’t be removed.');
+            }
+
             const client = await db.connect();
+
             try
             {
                 await client.query('BEGIN');
@@ -152,24 +216,34 @@ export async function POST(request: Request)
                 await client.query('DELETE FROM collection_state WHERE owner=$1', [owner]);
                 await client.query('COMMIT');
             }
-            catch (e)
+            catch (error)
             {
                 await client.query('ROLLBACK');
-                throw e;
+                throw error;
             }
             finally
             {
                 client.release();
             }
         }
-        else throw new Error('Unknown action.');
+        else
+        {
+            throw new Error('Unknown action.');
+        }
+
         return json({ savedAt: now });
     }
-    catch (e)
+    catch (error)
     {
-        const msg = e instanceof Error ? e.message : '';
-        if (/Invalid|Unknown|must|too long|Choose|Collection|Duplicate|Target/.test(msg)) return json({ error: msg }, 400);
-        console.error('Preference save failed', e);
+        const msg = error instanceof Error ? error.message : '';
+
+        if (/Invalid|Unknown|must|too long|Choose|Collection|Duplicate|Target/.test(msg))
+        {
+            return json({ error: msg }, 400);
+        }
+
+        console.error('Preference save failed', error);
+
         return json({ error: 'Saving failed. Your changes are still on this page. Retry to save them.' }, 503);
     }
 }

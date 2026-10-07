@@ -38,6 +38,7 @@ describe('vocabulary', () =>
             game('4', { name: 'Ungrouped' }),
             game('5', { name: 'An expansion', type: 'expansion', group: 'Should be ignored' }),
         ];
+
         expect(vocabulary(games)).toEqual([
             '- Cooperative crisis puzzles (2 games, e.g. Pandemic; Forbidden Island)',
             '- Tile drafting patterns (1 games, e.g. Azul)',
@@ -58,6 +59,7 @@ describe('groupPrompt', () =>
             ],
             ['- Racing card games (3 games, e.g. Flamme Rouge)']
         );
+
         expect(prompt).toContain('Existing groups:\n- Racing card games (3 games, e.g. Flamme Rouge)');
         expect(prompt).toContain('9 | Heat | weight 2.2 | 60 min | 1-6p | Competitive | categories: Racing | mechanics: Hand Management');
     });
@@ -87,6 +89,7 @@ describe('assignGroups', () =>
 
         expect(groups).toEqual({ '1': 'Cooperative crisis puzzles' });
         const [system] = sentPrompt();
+
         expect(system.content).toContain('Reuse an existing group, spelled exactly the same');
         expect(system.content).toContain("don't split groups by weight or length");
         expect(system.content).toContain('Never create near-duplicate names');
@@ -106,6 +109,7 @@ describe('assignGroups', () =>
         expect(groups).toEqual({ '1': 'Cooperative crisis puzzles', '2': 'Cooperative crisis puzzles' });
         expect(fetchMock).toHaveBeenCalledTimes(2);
         const retry = JSON.parse(String(fetchMock.mock.calls[1][1]!.body)).messages[1].content as string;
+
         expect(retry).toContain('Existing groups:\n- Cooperative crisis puzzles');
         expect(retry).toContain('2 | Skipped');
         expect(retry).not.toContain('1 | Game 1');

@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const h = vi.hoisted(() => ({ cookie: undefined as string | undefined }));
+const mocks = vi.hoisted(() => ({ cookie: undefined as string | undefined }));
+
 vi.mock('next/headers', () => ({
-    cookies: async () => ({ get: () => (h.cookie === undefined ? undefined : { value: h.cookie }) }),
+    cookies: async () => ({ get: () => (mocks.cookie === undefined ? undefined : { value: mocks.cookie }) }),
 }));
 
 import { getUser, passwordMatches, sameOrigin, sessionToken } from '@/app/auth';
@@ -11,7 +12,7 @@ import { POST as logout } from '@/app/api/logout/route';
 
 beforeEach(() =>
 {
-    h.cookie = undefined;
+    mocks.cookie = undefined;
 });
 afterEach(() =>
 {
@@ -33,21 +34,21 @@ describe('password gate', () =>
         vi.stubEnv('APP_PASSWORD', '');
         expect(passwordMatches('')).toBe(false);
         expect(sessionToken()).toBeNull();
-        h.cookie = '';
+        mocks.cookie = '';
         expect(await getUser()).toBeNull();
     });
 
     it('accepts the session cookie and rejects tampered ones', async () =>
     {
-        h.cookie = sessionToken()!;
+        mocks.cookie = sessionToken()!;
         expect(await getUser()).toEqual({ signedIn: true });
-        h.cookie = sessionToken()!.replace(/.$/, c => (c === '0' ? '1' : '0'));
+        mocks.cookie = sessionToken()!.replace(/.$/, digit => (digit === '0' ? '1' : '0'));
         expect(await getUser()).toBeNull();
     });
 
     it('invalidates sessions when the password changes', async () =>
     {
-        h.cookie = sessionToken()!;
+        mocks.cookie = sessionToken()!;
         vi.stubEnv('APP_PASSWORD', 'rotated');
         expect(await getUser()).toBeNull();
     });
@@ -56,6 +57,7 @@ describe('password gate', () =>
 describe('sameOrigin', () =>
 {
     const req = (headers: Record<string, string>) => new Request('http://internal:3000/api/state', { headers });
+
     it('allows same host, even when the proxy hides https', () =>
     {
         expect(sameOrigin(req({ origin: 'https://cull.example', host: 'cull.example' }))).toBe(true);
@@ -76,9 +78,11 @@ describe('login and logout routes', () =>
     it('sets an HttpOnly session cookie on the right password', async () =>
     {
         const res = await login(form('test-password'));
+
         expect(res.status).toBe(303);
         expect(res.headers.get('location')).toBe('/');
         const cookie = res.headers.get('set-cookie')!;
+
         expect(cookie).toContain(`cc_session=${sessionToken()}`);
         expect(cookie).toContain('HttpOnly');
         expect(cookie).toContain('SameSite=Lax');
@@ -88,8 +92,10 @@ describe('login and logout routes', () =>
     {
         vi.useFakeTimers();
         const pending = login(form('guess'));
+
         await vi.runAllTimersAsync();
         const res = await pending;
+
         expect(res.headers.get('location')).toBe('/login?error=1');
         expect(res.headers.get('set-cookie')).toBeNull();
     });
@@ -97,6 +103,7 @@ describe('login and logout routes', () =>
     it('clears the cookie on logout', async () =>
     {
         const res = await logout();
+
         expect(res.headers.get('location')).toBe('/login');
         expect(res.headers.get('set-cookie')).toContain('Max-Age=0');
     });

@@ -7,6 +7,7 @@ export const metadata = { title: 'Sign in · Collection Cull' };
 export default async function LoginPage({ searchParams }: { searchParams: Promise<{ error?: string }> })
 {
     const { error } = await searchParams;
+
     return (
         <main className="workspace">
             <form method="post" action="/api/login" className="message" style={{ maxWidth: 420, margin: '80px auto' }}>
