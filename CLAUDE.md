@@ -79,6 +79,14 @@ fake BoardGamePrices and PGlite over the wire, see `e2e/support/services.mjs`).
   behind the title (`RowArt`, `.row-art`); thumbnails are stored at sync and only BGG image-CDN
   URLs pass `bggImageUrl` (they go into CSS `url()`). E2E aborts requests to the CDN.
 - **Mean interaction** deduction defaults to 0 (off); users can raise it in Scoring.
+- **Reasons over numbers** (from `CLAUDE_TASKS.md` #2): cull rows lead with plain sentences from
+  `cullReasons` (rating sentence always first so "it" is unambiguous; max 3), chips stay for
+  details, and the keep score is shown muted. The CSV export still uses `cullExplanation`.
+- **Coverage** (`CLAUDE_TASKS.md` #1, `lib/coverage.ts`, Coverage tab + summary on the cull list):
+  headline % = play groups that keep ≥1 game (broad kinds alone are ~always 100%, so they're the
+  second line: lost / "thinner afterwards" = 3+ games keeping under half). 24 broad experiences
+  from weight, length, players, mode and BGG tags (tag-based ones hidden until a collection has
+  tags). Lists play groups that lose every game.
 - **README:** the user's own blurb (with its parentheticals and small typos) is intentional —
   don't "fix" it.
 - Moving the UI to Vite + React was discussed and tabled.

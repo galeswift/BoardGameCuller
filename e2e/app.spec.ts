@@ -173,6 +173,29 @@ test('cull reasons show as icons with details on hover', async ({ page }) =>
 
     await row.getByRole('button', { name: /^Below your rating threshold/ }).hover();
     await expect(page.getByRole('tooltip')).toContainText('6.4/10 is 0.6 below your 7.0 threshold.');
+
+    // The reason is also spelled out in words, without hovering.
+    await expect(row.locator('.cull-reason')).toHaveText(/rate it 6\.4, below your 7\.0 bar\./);
+});
+
+test('the cull list says how much play-experience coverage survives', async ({ page }) =>
+{
+    await page.goto('/login');
+    await page.getByRole('button', { name: 'Try the demo' }).click();
+    await page.getByRole('tab', { name: /Cull list/ }).click();
+
+    const summary = page.getByRole('region', { name: 'Play-experience coverage' });
+
+    await expect(summary).toContainText(/Letting go of these 100 games keeps \d+% of your play experiences/);
+    await summary.getByRole('button', { name: 'See coverage' }).click();
+
+    await expect(page.getByRole('heading', { name: 'What your collection covers' })).toBeVisible();
+    await expect(page.getByRole('img', { name: /^Heavy strategy: keeping \d+ of \d+$/ })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Play groups with nothing left' })).toBeVisible();
+
+    // Keeping everything leaves every play group covered.
+    await page.locator('#target').fill(String(seedStandalone));
+    await expect(page.getByRole('heading', { name: 'Play groups with nothing left' })).toHaveCount(0);
 });
 
 test("the cull list exports to Noble Knight's trade-in template", async ({ page }) =>

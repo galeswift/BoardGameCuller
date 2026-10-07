@@ -517,6 +517,77 @@ export function keepFactors(game: Scored, state: State, result: ReturnType<typeo
     return factors.sort((a, b) => order(a) - order(b) || Math.abs(b.impact) - Math.abs(a.impact));
 }
 
+/**
+ * Why a game is on the cull list, in plain sentences, biggest reason first. The numbers stay
+ * in the factor chips; this is the version a person reads.
+ */
+export function cullReasons(game: Scored, state: State, result: ReturnType<typeof calculate>): string[]
+{
+    const settings = state.settings;
+    const ratingText =
+        game.personalRating == null ? `BGG players rate it ${game.rating.toFixed(1)}` : `You rated it ${game.rating.toFixed(1)}`;
+    const reasons: { impact: number; text: string }[] = [];
+
+    if (game.lowRatingPenalty > 0)
+    {
+        reasons.push({ impact: -game.lowRatingPenalty, text: `${ratingText}, below your ${settings.lowThreshold.toFixed(1)} bar.` });
+    }
+
+    const alternative = result.ranked.find(other => other.id === game.alternative);
+
+    if (game.overlap > 0 && alternative)
+    {
+        reasons.push({
+            impact: -game.overlap,
+            text: result.kept.has(alternative.id)
+                ? `You’re keeping ${alternative.name}, which gives you the same kind of game (${game.group}).`
+                : `It overlaps with ${alternative.name} (${game.group}), which is also on this list.`,
+        });
+    }
+
+    if (game.bias < 0)
+    {
+        reasons.push({ impact: game.bias, text: 'You gave it a thumbs down.' });
+    }
+
+    if (game.meanPenalty > 0)
+    {
+        reasons.push({ impact: -game.meanPenalty, text: 'Its player-vs-player meanness counts against it.' });
+    }
+
+    if ((game.preference.box ?? 0) >= 2)
+    {
+        reasons.push({ impact: -game.boxPenalty, text: 'Its big box takes a lot of shelf space.' });
+    }
+
+    // The rating sentence goes first even when it isn't the biggest reason, so its "it" can't be
+    // read as the similar game named in another sentence.
+    const ratingFirst = (reason: { text: string }) => (reason.text.startsWith(ratingText) ? 0 : 1);
+
+    if (reasons.length)
+    {
+        return reasons
+            .sort((a, b) => a.impact - b.impact)
+            .slice(0, 3)
+            .sort((a, b) => ratingFirst(a) - ratingFirst(b))
+            .map(reason => reason.text);
+    }
+
+    // Nothing specific counts against it, so the rating is what separates it from the keepers.
+    const keptRatings = result.ranked
+        .filter(other => result.kept.has(other.id))
+        .map(other => other.rating)
+        .sort((a, b) => a - b);
+    const medianKept = keptRatings[Math.floor(keptRatings.length / 2)];
+
+    if (medianKept != null && game.rating < medianKept)
+    {
+        return [`${ratingText}, lower than most of the games you’re keeping.`];
+    }
+
+    return [`Nothing counts against it in particular: it just ranks below the ${result.keepCount} games you’re keeping.`];
+}
+
 /** Plain-text summary of the factors, for the CSV export. */
 export function cullExplanation(game: Scored, state: State, result: ReturnType<typeof calculate>)
 {

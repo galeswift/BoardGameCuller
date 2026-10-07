@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { calculate, cullExplanation, defaults, keepFactors, tagRarity, tagSimilarity, type Preference, type State } from '@/lib/model';
+import {
+    calculate,
+    cullExplanation,
+    cullReasons,
+    defaults,
+    keepFactors,
+    tagRarity,
+    tagSimilarity,
+    type Preference,
+    type State,
+} from '@/lib/model';
 import { game } from './helpers';
 
 const peer = (id: string, rating: number, extra = {}) =>
@@ -178,5 +188,54 @@ describe('tag similarity', () =>
         expect(overlap.lines).toContain(
             'BGG categories, mechanisms and families · 100% match (both: Fantasy, Deck Building, Hand Management)'
         );
+    });
+});
+
+describe('cullReasons', () =>
+{
+    function reasonsFor(games: ReturnType<typeof game>[], preferences: Record<string, Preference> = {}, target = 1)
+    {
+        const { state, result } = setup(games, preferences, { target });
+
+        return (id: string) =>
+            cullReasons(
+                result.ranked.find(entry => entry.id === id)!,
+                state,
+                result
+            );
+    }
+
+    it('puts the rating first, then the game you are keeping instead', () =>
+    {
+        const reasons = reasonsFor([peer('1', 8.5), peer('2', 6.5)], { '2': { thumb: -1 } });
+
+        expect(reasons('2')).toEqual([
+            'BGG players rate it 6.5, below your 7.0 bar.',
+            'You gave it a thumbs down.',
+            'You’re keeping Peer 1, which gives you the same kind of game (Engine builders).',
+        ]);
+    });
+
+    it('uses your own rating when you have one', () =>
+    {
+        const reasons = reasonsFor([game('1', { rating: 9 }), game('2', { rating: 8 })], { '2': { personalRating: 6 } });
+
+        expect(reasons('2')[0]).toBe('You rated it 6.0, below your 7.0 bar.');
+    });
+
+    it('explains a game that only misses the cut on rating', () =>
+    {
+        const reasons = reasonsFor([game('1', { rating: 9 }), game('2', { rating: 8.5 }), game('3', { rating: 7.5 })], {}, 2);
+
+        expect(reasons('3')).toEqual(['BGG players rate it 7.5, lower than most of the games you’re keeping.']);
+    });
+
+    it('mentions a big box only when it is large or oversized', () =>
+    {
+        const big = reasonsFor([game('1', { rating: 9 }), game('2', { rating: 8 })], { '2': { box: 3 } });
+        const standard = reasonsFor([game('1', { rating: 9 }), game('2', { rating: 8 })], { '2': { box: 1 } });
+
+        expect(big('2')).toContain('Its big box takes a lot of shelf space.');
+        expect(standard('2')).not.toContain('Its big box takes a lot of shelf space.');
     });
 });

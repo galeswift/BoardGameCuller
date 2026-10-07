@@ -49,6 +49,8 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { NKG_TEMPLATE_PATH, fillTradeInTemplate } from '@/lib/nkg';
 import { EbayPanel } from './ebay-panel';
+import { CoveragePanel, CoverageSummary } from './coverage-panel';
+import { coverage } from '@/lib/coverage';
 import type { PriceEstimate, PriceQuote, PriceSource, SourceEstimate } from '@/lib/prices';
 import { Progress } from '@/components/ui/progress';
 import { GROUP_BATCH } from '@/lib/groups';
@@ -60,6 +62,7 @@ import {
     calculate,
     collectionFromCSV,
     cullExplanation,
+    cullReasons,
     defaults,
     keepFactors,
     nameKey,
@@ -118,7 +121,6 @@ const factorIcons: Record<FactorKind, LucideIcon> = {
     cutoff: Scissors,
 };
 
-// One chip per scoring factor; hover or focus for the details.
 /** The game's box art, faded in behind the start of its row like a small hero image. */
 function RowArt({ url }: { url?: string })
 {
@@ -132,6 +134,7 @@ function RowArt({ url }: { url?: string })
     return <span className="row-art" style={{ backgroundImage: `url("${safeUrl}")` }} aria-hidden="true" />;
 }
 
+// One chip per scoring factor; hover or focus for the details.
 function FactorChips({ factors, onOpen }: { factors: Factor[]; onOpen: (id: string) => void })
 {
     return (
@@ -511,6 +514,7 @@ export default function CollectionApp()
         return () => window.removeEventListener('beforeunload', warn);
     }, []);
     const result = useMemo(() => (state ? calculate(state) : null), [state]);
+    const collectionCoverage = useMemo(() => (result ? coverage(result.ranked, result.kept) : null), [result]);
     const all = useMemo(() => (result ? [...result.ranked].sort((a, b) => nameKey(a.name).localeCompare(nameKey(b.name))) : []), [result]);
     const visible = useMemo(() =>
     {
@@ -1374,6 +1378,7 @@ export default function CollectionApp()
                                     <TabsTrigger value="cull">
                                         Cull list <span>{result.cull.length}</span>
                                     </TabsTrigger>
+                                    <TabsTrigger value="coverage">Coverage</TabsTrigger>
                                     <TabsTrigger value="ranking">Keep ranking</TabsTrigger>
                                     <TabsTrigger value="expansions">Expansions</TabsTrigger>
                                     <TabsTrigger value="settings">
@@ -1468,8 +1473,17 @@ export default function CollectionApp()
                                     </p>
                                 </aside>
                             </section>
+                        ) : view === 'coverage' ? (
+                            collectionCoverage && <CoveragePanel coverage={collectionCoverage} cullCount={result.cull.length} />
                         ) : (
                             <>
+                                {view === 'cull' && collectionCoverage && result.cull.length > 0 && (
+                                    <CoverageSummary
+                                        coverage={collectionCoverage}
+                                        cullCount={result.cull.length}
+                                        onOpen={() => setView('coverage')}
+                                    />
+                                )}
                                 <div className="list-toolbar">
                                     <div className="search-field">
                                         <Search size={19} />
@@ -1927,6 +1941,7 @@ export default function CollectionApp()
                                                         {view === 'cull' && (
                                                             <div className="cull-explanation">
                                                                 <span className="mobile-reason-label">Why it’s on the cull list</span>
+                                                                <p className="cull-reason">{cullReasons(game, state, result).join(' ')}</p>
                                                                 <FactorChips
                                                                     factors={keepFactors(game, state, result)}
                                                                     onOpen={setDetail}
