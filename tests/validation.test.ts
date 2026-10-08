@@ -46,6 +46,9 @@ describe('settingsPatch', () =>
     it('rejects fractional targets and unknown keys', () =>
     {
         expect(() => settingsPatch({ target: 1.5 })).toThrow('Target must be a whole number.');
+        // Targets go as high as the largest collection.
+        expect(settingsPatch({ target: 20000 })).toEqual({ target: 20000 });
+        expect(() => settingsPatch({ target: 20001 })).toThrow('Invalid numeric value.');
         expect(() => settingsPatch({ nope: 1 })).toThrow('Unknown setting.');
     });
 });

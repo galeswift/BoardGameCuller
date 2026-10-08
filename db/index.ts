@@ -24,6 +24,15 @@ CREATE TABLE IF NOT EXISTS bgg_reviews (
   game_id text PRIMARY KEY,
   reviews jsonb NOT NULL,
   fetched text NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sync_jobs (
+  owner text PRIMARY KEY,
+  status text NOT NULL,
+  done integer NOT NULL DEFAULT 0,
+  total integer NOT NULL DEFAULT 0,
+  message text NOT NULL DEFAULT '',
+  started text NOT NULL,
+  updated text NOT NULL
 );`;
 
 // Survive Next dev hot reloads without opening a new pool each time.

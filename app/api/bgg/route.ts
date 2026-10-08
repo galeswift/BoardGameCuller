@@ -1,15 +1,13 @@
 import { getUser, sameOrigin } from '../../auth';
 import { getDb } from '@/db';
-import seed from '@/lib/collection.json';
-import { BggError, fetchBggCollection } from '@/lib/bgg';
-import type { Game } from '@/lib/model';
-import { defaultProfile, resolveProfile } from '@/lib/profile';
-import { validateGames } from '@/lib/validation';
+import { resolveProfile } from '@/lib/profile';
+import { readSyncJob, startSync } from '@/lib/sync-jobs';
 
 export const dynamic = 'force-dynamic';
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store' } });
 
-// Imports the profile's owned games from BoardGameGeek, replacing its stored collection.
+// Starts importing the profile's owned games from BoardGameGeek in the background, replacing its
+// stored collection when done. Answers 202 with the import's progress; GET polls it.
 export async function POST(request: Request)
 {
     const user = await getUser();
@@ -37,29 +35,45 @@ export async function POST(request: Request)
 
     try
     {
-        const db = await getDb();
-        const prior =
-            (await db.query<{ games: Game[] | null }>('SELECT games FROM collection_state WHERE owner=$1', [profile])).rows[0]?.games ??
-            (profile === defaultProfile() ? (seed as Game[]) : []);
-        const games = validateGames(await fetchBggCollection(profile, prior));
-        const now = new Date().toISOString();
-
-        await db.query(
-            "INSERT INTO collection_state(owner,settings,games,updated) VALUES($1,'{}',$2::jsonb,$3) ON CONFLICT(owner) DO UPDATE SET games=excluded.games,updated=excluded.updated",
-            [profile, JSON.stringify(games), now]
-        );
-
-        return json({ games, savedAt: now });
+        return json({ job: await startSync(await getDb(), profile) }, 202);
     }
     catch (error)
     {
-        if (error instanceof BggError)
-        {
-            return json({ error: error.message }, 502);
-        }
+        console.error('BGG import could not start', error);
 
-        console.error('BGG import failed', error);
+        return json({ error: 'BGG import could not start. Please retry.' }, 503);
+    }
+}
 
-        return json({ error: 'BGG import failed. Please retry.' }, 503);
+// The profile's latest import: running (with progress), done or failed. Null if it never had one.
+export async function GET(request: Request)
+{
+    const user = await getUser();
+
+    if (!user)
+    {
+        return json({ error: 'Sign in to see imports.' }, 401);
+    }
+
+    let profile;
+
+    try
+    {
+        profile = resolveProfile(new URL(request.url).searchParams.get('profile'));
+    }
+    catch (error)
+    {
+        return json({ error: (error as Error).message }, 400);
+    }
+
+    try
+    {
+        return json({ job: await readSyncJob(await getDb(), profile) });
+    }
+    catch (error)
+    {
+        console.error('BGG import status failed', error);
+
+        return json({ error: 'Import status is temporarily unavailable.' }, 503);
     }
 }

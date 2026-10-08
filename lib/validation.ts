@@ -112,7 +112,7 @@ export function settingsPatch(value: unknown): Partial<Settings>
         }
         else if (field === 'target')
         {
-            out[field] = bounded(fieldValue, 0, 1000);
+            out[field] = bounded(fieldValue, 0, MAX_COLLECTION_GAMES);
             if (!Number.isInteger(fieldValue))
             {
                 throw new Error('Target must be a whole number.');

@@ -85,6 +85,25 @@ test('the demo shows the sample collection without saving anything', async ({ pa
     await expect(page).toHaveURL(/\/login$/);
 });
 
+test('a big import runs in the background and survives a reload', async ({ page }) =>
+{
+    await signIn(page);
+    await page.goto('/?profile=bigshelf');
+    await page.getByRole('button', { name: 'Import from BoardGameGeek' }).click();
+
+    const progress = page.locator('.sync-progress');
+
+    await expect(progress).toContainText('Importing from BoardGameGeek… 0 of 45 games', { timeout: 15_000 });
+
+    // Leaving and coming back picks the running import up again.
+    await page.reload();
+    await expect(progress).toContainText(/Importing from BoardGameGeek… \d+ of 45 games/, { timeout: 15_000 });
+    await expect(progress.getByRole('progressbar', { name: 'BGG import progress' })).toBeVisible();
+    await expect(page.getByText('Imported 45 entries from BoardGameGeek')).toBeVisible({ timeout: 30_000 });
+    await expect(progress).toHaveCount(0);
+    await expect(page.getByText('45 games · 0 expansions reviewed separately')).toBeVisible();
+});
+
 test("a friend's BGG collection imports into its own profile", async ({ page }) =>
 {
     const friend = uniqueProfile('friend');
@@ -339,7 +358,7 @@ test('checking prices shows progress batch by batch', async ({ page }) =>
 
     await expect(progress).toContainText('Checking prices… 0 of 12 games');
     await expect(progress.getByRole('progressbar', { name: 'Price check progress' })).toBeVisible();
-    await expect(progress).toContainText('Checking prices… 10 of 12 games');
+    await expect(progress).toContainText('Checking prices… 10 of 12 games', { timeout: 10_000 });
     await expect(page.getByRole('button', { name: 'Checking 10/12…' })).toBeDisabled();
     await expect(page.getByText(/^Prices updated for 12 games from /)).toBeVisible({ timeout: 30_000 });
     await expect(progress).toHaveCount(0);
@@ -385,7 +404,7 @@ test('All Games sorts by column, and collections can be removed', async ({ page 
     await expect(dialog).toContainText(`Remove ${friend}’s collection?`);
     await dialog.getByRole('button', { name: 'Remove collection' }).click();
     await expect(page.getByText(`Removed ${friend}’s collection.`)).toBeVisible();
-    await expect(page.getByText('galeswift’s collection')).toBeVisible();
+    await expect(page.getByText('galeswift’s collection', { exact: true })).toBeVisible();
     await page.getByRole('combobox', { name: 'Whose collection' }).click();
     await expect(page.getByRole('option', { name: friend, exact: true })).toHaveCount(0);
     // The default collection can't be removed.

@@ -124,3 +124,4 @@
 @media(prefers-color-scheme:dark){.coverage-summary{background:#183a30;border-color:#2b5a4a;color:#cdeedf}.coverage-summary>svg{color:#7fd1b0}.coverage-summary.has-loss{background:#392f22;border-color:#5a4a2c;color:#f0dcb0}.coverage-summary.has-loss>svg{color:#e3b15c}.coverage-before{background:#5a3a32}.coverage-kept{background:#7fa2f5}.coverage-bars li.lost .coverage-label,.coverage-bars li.lost .coverage-count{color:#f5b39a}}
 @media(max-width:760px){.coverage{padding:20px 16px}.coverage-bars li{grid-template-columns:1fr 64px;gap:4px 10px}.coverage-track{grid-column:1/3;grid-row:2}.coverage-summary{flex-wrap:wrap}}
 @media(max-width:760px){.coverage-summary{align-items:flex-start}.coverage-summary>div{flex-basis:calc(100% - 40px)}.coverage-summary>button{margin-left:36px}}
+.sync-progress{margin:16px 0 0}

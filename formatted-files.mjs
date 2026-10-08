@@ -3,7 +3,7 @@
 // lib/utils.ts) isn't included.
 export const FORMATTED = [
     'app/**/*.{ts,tsx}',
-    'lib/{bgg,coverage,ebay-drafts,groups,listing,model,nkg,openai,preference-sql,prices,profile,sort,text,validation}.ts',
+    'lib/{bgg,coverage,ebay-drafts,groups,listing,model,nkg,openai,preference-sql,prices,profile,sort,sync-jobs,text,validation}.ts',
     'db/index.ts',
     'tests/**/*.{ts,mjs}',
     'e2e/**/*.{ts,mjs}',

@@ -72,6 +72,11 @@ fake BoardGamePrices and PGlite over the wire, see `e2e/support/services.mjs`).
   Mythwind vs Fateforge ≈ 67% (user expects 50–70%); sequels ~96–99%. Games without tags
   (collections not re-synced since tags were added) use the old theme-based formula.
   The sample collection (`lib/collection.json`) has tags backfilled.
+- **Big collections:** limit 20,000 games (`MAX_COLLECTION_GAMES`, also the max target), uploads/saves
+  up to 30 MB. Sync from BGG runs in the background (`lib/sync-jobs.ts`, `sync_jobs` table):
+  POST /api/bgg starts it (202), GET polls progress; the page polls every 1.5 s, resumes after a
+  reload, and a job silent for 3 min is reported as stopped. Game lists with 150+ rows are
+  virtualized (`app/virtual-rows.tsx`, TanStack window virtualizer, rows measured).
 - **Noble Knight export:** fills the bundled `public/nkg-trade-template.xlsx`; per-game condition,
   default Used.
 - **UI:** "All Games" tab (renamed from Preferences) with sortable headers; reason chips with

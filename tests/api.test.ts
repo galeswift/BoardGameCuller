@@ -3,12 +3,13 @@ import type { Game } from '@/lib/model';
 import type { PriceQuote, QuoteResult } from '@/lib/prices';
 import type { ListingFacts, ListingResult, Review } from '@/lib/listing';
 import type { GroupInput } from '@/lib/groups';
+import type { SyncProgress } from '@/lib/bgg';
 
 const mocks = vi.hoisted(() => ({
     signedIn: true,
     token: '',
     pool: null as unknown,
-    fetchBgg: null as unknown as (username: string, previous: Game[]) => Promise<Game[]>,
+    fetchBgg: null as unknown as (username: string, previous: Game[], onProgress?: SyncProgress) => Promise<Game[]>,
     quote: null as unknown as (games: { id: string; name: string }[], opts: { sitename: string }) => Promise<QuoteResult>,
     write: null as unknown as (games: ListingFacts[], opts: { cachedReviews?: Map<string, Review[]> }) => Promise<ListingResult>,
     group: null as unknown as (batch: GroupInput[], existing: string[]) => Promise<Record<string, string>>,
@@ -32,14 +33,16 @@ vi.mock('@/lib/prices', async original => ({
 }));
 vi.mock('@/lib/bgg', async original => ({
     ...(await original<object>()),
-    fetchBggCollection: (username: string, previous: Game[]) => mocks.fetchBgg(username, previous),
+    fetchBggCollection: (username: string, previous: Game[], onProgress?: SyncProgress) => mocks.fetchBgg(username, previous, onProgress),
     fetchThingDetails: async () => new Map(),
 }));
 
 import { demoToken, sessionToken } from '@/app/auth';
 import { GET, POST } from '@/app/api/state/route';
 import { POST as prices } from '@/app/api/prices/route';
-import { POST as importBgg } from '@/app/api/bgg/route';
+import { GET as importStatus, POST as importBgg } from '@/app/api/bgg/route';
+import { syncSettled } from '@/lib/sync-jobs';
+import { defaultProfile } from '@/lib/profile';
 import { POST as describe_ } from '@/app/api/ebay/descriptions/route';
 import { POST as groupsRoute } from '@/app/api/groups/route';
 import { BggError } from '@/lib/bgg';
@@ -98,7 +101,7 @@ beforeAll(async () =>
 
 beforeEach(async () =>
 {
-    await db.pg.exec('TRUNCATE collection_state, preferences, prices, bgg_reviews');
+    await db.pg.exec('TRUNCATE collection_state, preferences, prices, bgg_reviews, sync_jobs');
     mocks.signedIn = true;
     mocks.token = sessionToken()!;
     mocks.fetchBgg = async () => [game('1'), game('2')];
@@ -225,11 +228,23 @@ describe('saving', () =>
 
 describe('BGG import route', () =>
 {
+    const status = async (profile: string) =>
+    {
+        const res = await importStatus(apiRequest(`/api/bgg?profile=${profile}`));
+
+        return { status: res.status, body: await res.json() };
+    };
+
+    // Starts an import, waits for the background work, and returns the start response and final job.
     const sync = async (profile?: string) =>
     {
         const res = await importBgg(apiRequest('/api/bgg', { method: 'POST', body: { profile } }));
+        const owner = (profile ?? defaultProfile()).toLowerCase();
+        const body = await res.json();
 
-        return { status: res.status, body: await res.json() };
+        await syncSettled(owner);
+
+        return { status: res.status, body, job: (await status(owner)).body.job };
     };
 
     it('imports into the requested profile and passes its previous games', async () =>
@@ -243,7 +258,11 @@ describe('BGG import route', () =>
             return [game('1', { group: 'kept' })];
         };
 
-        expect((await sync('Friend')).status).toBe(200);
+        const first = await sync('Friend');
+
+        expect(first.status).toBe(202);
+        expect(first.body.job).toMatchObject({ status: 'running' });
+        expect(first.job).toMatchObject({ status: 'done', done: 1, total: 1 });
         expect(calls[0]).toEqual(['friend', []]);
         expect((await load('friend')).body.games).toEqual([game('1', { group: 'kept' })]);
 
@@ -273,15 +292,70 @@ describe('BGG import route', () =>
             throw new BggError('BoardGameGeek doesn’t recognise that username.');
         };
 
-        expect(await sync('nobody')).toEqual({ status: 502, body: { error: 'BoardGameGeek doesn’t recognise that username.' } });
+        expect((await sync('nobody')).job).toMatchObject({
+            status: 'failed',
+            message: 'BoardGameGeek doesn’t recognise that username.',
+        });
         expect((await load('nobody')).body.games).toEqual([]);
     });
 
     it('validates what BGG returned before saving', async () =>
     {
         mocks.fetchBgg = async () => [game('1'), game('1')];
-        expect((await sync('friend')).status).toBe(503);
+        expect((await sync('friend')).job).toMatchObject({ status: 'failed', message: 'BGG import failed. Please retry.' });
         expect((await load('friend')).body.games).toEqual([]);
+    });
+
+    it('reports progress while running, and a second start joins the running import', async () =>
+    {
+        let release = () =>
+        {};
+
+        let starts = 0;
+
+        mocks.fetchBgg = async (_username, _prev, onProgress) =>
+        {
+            starts++;
+            await onProgress?.(20, 60);
+            await new Promise<void>(resolve =>
+            {
+                release = resolve;
+            });
+
+            return [game('1')];
+        };
+
+        await importBgg(apiRequest('/api/bgg', { method: 'POST', body: { profile: 'big' } }));
+        await vi.waitFor(async () => expect((await status('big')).body.job).toMatchObject({ status: 'running', done: 20, total: 60 }));
+
+        const again = await importBgg(apiRequest('/api/bgg', { method: 'POST', body: { profile: 'big' } }));
+
+        expect((await again.json()).job).toMatchObject({ status: 'running', done: 20 });
+        release();
+        await syncSettled('big');
+        expect(starts).toBe(1);
+        expect((await status('big')).body.job).toMatchObject({ status: 'done', done: 1 });
+    });
+
+    it('reports an import cut off by a restart as stopped, and lets it start again', async () =>
+    {
+        const long = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+
+        await db.pg.query(
+            "INSERT INTO sync_jobs(owner,status,done,total,message,started,updated) VALUES('friend','running',5,60,'',$1,$1)",
+            [long]
+        );
+        expect((await status('friend')).body.job).toMatchObject({ status: 'failed', message: expect.stringContaining('stopped') });
+
+        mocks.fetchBgg = async () => [game('1')];
+        expect((await sync('friend')).job).toMatchObject({ status: 'done' });
+    });
+
+    it('has no status for a profile that never imported, and needs sign-in', async () =>
+    {
+        expect((await status('fresh')).body).toEqual({ job: null });
+        mocks.signedIn = false;
+        expect((await status('fresh')).status).toBe(401);
     });
 });
 

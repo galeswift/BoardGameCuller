@@ -207,8 +207,13 @@ export async function fetchThingDetails(ids: string[]): Promise<Map<string, Thin
     return out;
 }
 
-/** Owned games for a BGG user, keeping hand-edited fields from `previous` by BGG ID. */
-export async function fetchBggCollection(username: string, previous: Game[]): Promise<Game[]>
+export type SyncProgress = (done: number, total: number) => Promise<void> | void;
+
+/**
+ * Owned games for a BGG user, keeping hand-edited fields from `previous` by BGG ID.
+ * `onProgress` hears how many games' details have been fetched so far.
+ */
+export async function fetchBggCollection(username: string, previous: Game[], onProgress?: SyncProgress): Promise<Game[]>
 {
     const user = encodeURIComponent(username);
     const standalone = await bggXml(`collection?username=${user}&own=1&stats=1&excludesubtype=boardgameexpansion`);
@@ -244,6 +249,7 @@ export async function fetchBggCollection(username: string, previous: Game[]): Pr
     const ids = [...owned.keys()];
     const things = new Map<string, ReturnType<typeof details>>();
 
+    await onProgress?.(0, ids.length);
     for (let index = 0; index < ids.length; index += THING_BATCH)
     {
         await sleep(REQUEST_GAP_MS);
@@ -253,6 +259,8 @@ export async function fetchBggCollection(username: string, previous: Game[]): Pr
         {
             things.set(String(item.id), details(item));
         }
+
+        await onProgress?.(Math.min(index + THING_BATCH, ids.length), ids.length);
     }
 
     const old = new Map(previous.map(game => [game.id, game]));

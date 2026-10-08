@@ -43,9 +43,9 @@ const xml = (body: string, status = 200) => new Response(body, { status, headers
 let fetchMock: Mock<(url: string, init?: { headers: Record<string, string> }) => Promise<Response>>;
 
 /** Runs the import while fast-forwarding the deliberate gaps between BGG requests. */
-async function run(previous = [] as ReturnType<typeof game>[])
+async function run(previous = [] as ReturnType<typeof game>[], onProgress?: (done: number, total: number) => void)
 {
-    const promise = fetchBggCollection('someone', previous);
+    const promise = fetchBggCollection('someone', previous, onProgress);
 
     promise.catch(() =>
     {});
@@ -125,6 +125,20 @@ describe('fetchBggCollection', () =>
         });
         // Prefers the base game the user actually owns.
         expect(branch).toMatchObject({ type: 'expansion', parentId: '100', parentName: 'Spirit Island' });
+    });
+
+    it('reports progress as game details arrive', async () =>
+    {
+        const progress: [number, number][] = [];
+
+        await run([], (done, total) =>
+        {
+            progress.push([done, total]);
+        });
+        expect(progress).toEqual([
+            [0, 3],
+            [3, 3],
+        ]);
     });
 
     it('sends the bearer token and requests owned items with stats', async () =>

@@ -26,6 +26,10 @@ const items = body => `<?xml version="1.0" encoding="utf-8"?><items>${body}</ite
 const STANDALONE = items(
     item('900001', 'Fixture Quest', 'boardgame', '9', '8.1') + item('900002', 'Test Tiles', 'boardgame', 'N/A', '6.4')
 );
+// A bigger collection (45 games, so three detail requests) for watching an import's progress.
+const BIG_SHELF = items(
+    Array.from({ length: 45 }, (_, index) => item(String(910001 + index), `Shelf Game ${index + 1}`, 'boardgame', 'N/A', '7.0')).join('')
+);
 const EXPANSIONS = items(item('900003', 'Fixture Quest: More Quests', 'boardgameexpansion', 'N/A', '8.0'));
 const THINGS = items(`
  <item type="boardgame" id="900001"><minplayers value="1"/><maxplayers value="4"/><playingtime value="90"/>
@@ -83,13 +87,34 @@ createServer((req, res) =>
             return send(200, '<errors><error><message>Invalid username specified</message></error></errors>');
         }
 
+        if (url.searchParams.get('username') === 'bigshelf')
+        {
+            return send(200, url.searchParams.get('subtype') === 'boardgameexpansion' ? items('') : BIG_SHELF);
+        }
+
         return send(200, url.searchParams.get('subtype') === 'boardgameexpansion' ? EXPANSIONS : STANDALONE);
+    }
+
+    // The big shelf's details come back slowly, so the import's progress can be watched.
+    if (url.pathname === '/xmlapi2/thing' && /^9100[0-4]\d(,|$)/.test(url.searchParams.get('id')))
+    {
+        const details = url.searchParams
+            .get('id')
+            .split(',')
+            .map(
+                id =>
+                    `<item type="boardgame" id="${id}"><minplayers value="1"/><maxplayers value="4"/><playingtime value="45"/>` +
+                    '<statistics><ratings><averageweight value="2"/></ratings></statistics></item>'
+            )
+            .join('');
+
+        return setTimeout(() => send(200, items(details)), 1500);
     }
 
     // Price lookups are slowed down a little so the progress bar can be observed.
     if (url.pathname === '/xmlapi2/thing' && url.searchParams.has('marketplace'))
     {
-        return setTimeout(() => send(200, THINGS), 300);
+        return setTimeout(() => send(200, THINGS), 1500);
     }
 
     if (url.pathname === '/xmlapi2/thing')

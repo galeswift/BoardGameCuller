@@ -1,5 +1,5 @@
 'use client';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import {
     AlertDialog,
     AlertDialogAction,
@@ -50,7 +50,9 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '
 import { NKG_TEMPLATE_PATH, fillTradeInTemplate } from '@/lib/nkg';
 import { EbayPanel } from './ebay-panel';
 import { CoveragePanel, CoverageSummary } from './coverage-panel';
+import { VirtualRows } from './virtual-rows';
 import { coverage } from '@/lib/coverage';
+import type { SyncJob } from '@/lib/sync-jobs';
 import type { PriceEstimate, PriceQuote, PriceSource, SourceEstimate } from '@/lib/prices';
 import { Progress } from '@/components/ui/progress';
 import { GROUP_BATCH } from '@/lib/groups';
@@ -177,6 +179,8 @@ const month = (isoDate: string) =>
 // Prices are looked up a batch at a time so the page can show progress.
 const PRICE_BATCH = 10;
 const PRICE_STALE_MS = 14 * 24 * 3600 * 1000;
+// How often the page checks on a background BGG import.
+const SYNC_POLL_MS = 1500;
 const SOURCE_NAMES: Record<PriceSource, string> = { bgg: 'BGG GeekMarket', bgp: 'BoardGamePrices.com' };
 
 /** One line of the tooltip per price source, e.g. "BGG GeekMarket: $25 median of 3 listings ($20–$30)". */
@@ -304,7 +308,10 @@ export default function CollectionApp()
     const [profiles, setProfiles] = useState<string[]>([]);
     const [adding, setAdding] = useState(false);
     const [newProfile, setNewProfile] = useState('');
-    const [syncing, setSyncing] = useState(false);
+    // The profile whose BGG import is running in the background, if any.
+    const [syncTarget, setSyncTarget] = useState<string | null>(null);
+    const [syncProgress, setSyncProgress] = useState<{ done: number; total: number } | null>(null);
+    const syncing = syncTarget !== null;
     const [prices, setPrices] = useState<Record<string, PriceQuote>>({});
     const [pricing, setPricing] = useState(false);
     const [ebayOpen, setEbayOpen] = useState(false);
@@ -359,6 +366,19 @@ export default function CollectionApp()
 
             pageUrl.searchParams.set('profile', data.profile);
             history.replaceState(null, '', pageUrl);
+
+            // Pick up a BGG import that's still running from before a reload.
+            if (!data.demo)
+            {
+                const syncResponse = await fetch(`/api/bgg?profile=${encodeURIComponent(data.profile)}`, { cache: 'no-store' });
+                const syncData = (await syncResponse.json().catch(() => ({ job: null }))) as { job: SyncJob | null };
+
+                if (syncResponse.ok && syncData.job?.status === 'running')
+                {
+                    setSyncTarget(data.profile);
+                    setSyncProgress(syncData.job.total ? { done: syncData.job.done, total: syncData.job.total } : null);
+                }
+            }
         }
         catch (error)
         {
@@ -760,8 +780,9 @@ export default function CollectionApp()
             return;
         }
 
-        setSyncing(true);
-        setNotice(`Importing ${currentProfile}’s collection from BoardGameGeek. This can take a minute…`);
+        setNotice(
+            `Importing ${currentProfile}’s collection from BoardGameGeek. Big collections take a few minutes; you can keep using the page or come back later.`
+        );
         try
         {
             const response = await fetch('/api/bgg', {
@@ -769,25 +790,15 @@ export default function CollectionApp()
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ profile: currentProfile }),
             });
-            const data = (await response.json()) as { games: Game[]; savedAt: string; error?: string };
+            const data = (await response.json()) as { job?: SyncJob; error?: string };
 
-            if (!response.ok)
+            if (!response.ok || !data.job)
             {
                 throw new Error(data.error || 'BGG import failed.');
             }
 
-            if (profileRef.current !== currentProfile)
-            {
-                return;
-            }
-
-            setState(prev => (prev ? { ...prev, games: data.games, savedAt: data.savedAt } : prev));
-            setProfiles(list => (list.includes(currentProfile) ? list : [...list, currentProfile].sort()));
-            setNotice(`Imported ${data.games.length} entries from BoardGameGeek. Preferences were matched by BGG ID.`);
-            if (aiAvailable)
-            {
-                void assignPlayGroups(data.games);
-            }
+            setSyncTarget(currentProfile);
+            setSyncProgress(data.job.total ? { done: data.job.done, total: data.job.total } : null);
         }
         catch (error)
         {
@@ -796,11 +807,107 @@ export default function CollectionApp()
                 setNotice(error instanceof Error ? error.message : 'BGG import failed.');
             }
         }
-        finally
-        {
-            setSyncing(false);
-        }
     }
+
+    // Runs when a background import ends: loads the imported games, or says what went wrong.
+    const finishSync = useEffectEvent(async (currentProfile: string, job: SyncJob | null) =>
+    {
+        setSyncTarget(null);
+        setSyncProgress(null);
+        if (profileRef.current !== currentProfile)
+        {
+            return;
+        }
+
+        if (!job || job.status === 'failed')
+        {
+            setNotice(job?.message || 'BGG import failed.');
+
+            return;
+        }
+
+        const response = await fetch(`/api/state?profile=${encodeURIComponent(currentProfile)}`, { cache: 'no-store' });
+        const data = (await response.json()) as { games: Game[]; savedAt: string | null; error?: string };
+
+        if (!response.ok)
+        {
+            setNotice(data.error || 'The import finished, but the collection couldn’t be loaded. Reload the page.');
+
+            return;
+        }
+
+        if (profileRef.current !== currentProfile)
+        {
+            return;
+        }
+
+        setState(prev => (prev ? { ...prev, games: data.games, savedAt: data.savedAt } : prev));
+        setProfiles(list => (list.includes(currentProfile) ? list : [...list, currentProfile].sort()));
+        setNotice(`Imported ${data.games.length} entries from BoardGameGeek. Preferences were matched by BGG ID.`);
+        if (aiAvailable)
+        {
+            void assignPlayGroups(data.games);
+        }
+    });
+
+    // Polls a background import for progress until it ends.
+    useEffect(() =>
+    {
+        if (!syncTarget)
+        {
+            return;
+        }
+
+        let stopped = false;
+
+        void (async () =>
+        {
+            while (!stopped)
+            {
+                await new Promise(resolve => setTimeout(resolve, SYNC_POLL_MS));
+                if (stopped)
+                {
+                    return;
+                }
+
+                try
+                {
+                    const response = await fetch(`/api/bgg?profile=${encodeURIComponent(syncTarget)}`, { cache: 'no-store' });
+                    const data = (await response.json()) as { job: SyncJob | null; error?: string };
+
+                    if (stopped)
+                    {
+                        return;
+                    }
+
+                    if (!response.ok)
+                    {
+                        throw new Error(data.error);
+                    }
+
+                    if (data.job?.status === 'running')
+                    {
+                        setSyncProgress(data.job.total ? { done: data.job.done, total: data.job.total } : null);
+                        continue;
+                    }
+
+                    await finishSync(syncTarget, data.job);
+
+                    return;
+                }
+                catch
+                {
+                    // A dropped poll (deploy, flaky network) isn't fatal: the import keeps running on
+                    // the server, so try again next tick.
+                }
+            }
+        })();
+
+        return () =>
+        {
+            stopped = true;
+        };
+    }, [syncTarget]);
 
     const knownProfiles = profile && !profiles.includes(profile) ? [...profiles, profile].sort() : profiles;
 
@@ -1245,6 +1352,18 @@ export default function CollectionApp()
                             starts fresh.
                         </span>
                         <a href="/login">Sign in</a>
+                    </div>
+                )}
+                {syncing && (
+                    <div className="price-progress sync-progress" role="status" aria-live="polite">
+                        <span>
+                            {syncProgress
+                                ? `Importing from BoardGameGeek… ${syncProgress.done} of ${syncProgress.total} games`
+                                : 'Asking BoardGameGeek for the collection…'}
+                        </span>
+                        {syncProgress && (
+                            <Progress value={(syncProgress.done / syncProgress.total) * 100} aria-label="BGG import progress" />
+                        )}
                     </div>
                 )}
                 {loadError ? (
@@ -1742,9 +1861,11 @@ export default function CollectionApp()
                                     </section>
                                 ) : view === 'expansions' ? (
                                     <section className="game-list">
-                                        {expansionGames
-                                            .filter(game => game.name.toLowerCase().includes(search.toLowerCase()))
-                                            .map(game =>
+                                        <VirtualRows
+                                            items={expansionGames.filter(game => game.name.toLowerCase().includes(search.toLowerCase()))}
+                                            rowKey={game => game.id}
+                                            estimateSize={90}
+                                            renderRow={(game, _index, rowProps) =>
                                             {
                                                 const preference = state.preferences[game.id] || {};
                                                 const parentCull =
@@ -1753,7 +1874,7 @@ export default function CollectionApp()
                                                     all.some(other => other.id === game.parentId);
 
                                                 return (
-                                                    <article className="game-row expansion-row" key={game.id}>
+                                                    <article {...rowProps} className="game-row expansion-row">
                                                         <RowArt url={game.thumbnail} />
                                                         <div className="game-info">
                                                             <div className="title-line">
@@ -1796,7 +1917,8 @@ export default function CollectionApp()
                                                         </label>
                                                     </article>
                                                 );
-                                            })}
+                                            }}
+                                        />
                                         <p className="footnote">
                                             Expansion choices are saved separately and do not change the standalone target. Review
                                             expansions when removing their parent.
@@ -1882,12 +2004,14 @@ export default function CollectionApp()
                                         {visible.length === 0 ? (
                                             <div className="empty">No games match this view.</div>
                                         ) : (
-                                            visible.map((game, index) =>
-                                            {
-                                                return (
+                                            <VirtualRows
+                                                items={visible}
+                                                rowKey={game => game.id}
+                                                estimateSize={view === 'cull' ? 130 : 96}
+                                                renderRow={(game, index, rowProps) => (
                                                     <article
+                                                        {...rowProps}
                                                         className={`game-row ${game.preference.mustKeep ? 'locked' : ''}`}
-                                                        key={game.id}
                                                     >
                                                         <RowArt url={game.thumbnail} />
                                                         <span className="row-rank">
@@ -1989,8 +2113,8 @@ export default function CollectionApp()
                                                             )}
                                                         </div>
                                                     </article>
-                                                );
-                                            })
+                                                )}
+                                            />
                                         )}
                                     </section>
                                 )}
