@@ -1,6 +1,7 @@
 import { getViewer, sameOrigin } from '../../auth';
 import { getDb } from '@/db';
 import { BggError } from '@/lib/bgg';
+import { MAX_COLLECTION_GAMES } from '@/lib/model';
 import { QUOTE_VERSION, missesSources, quotePrices, type PriceQuote } from '@/lib/prices';
 
 export const dynamic = 'force-dynamic';
@@ -35,7 +36,7 @@ export async function POST(request: Request)
         if (
             !['cached', 'missing', 'refresh'].includes(mode) ||
             !Array.isArray(games) ||
-            games.length > 1000 ||
+            games.length > MAX_COLLECTION_GAMES ||
             !games.every(
                 game =>
                     typeof game?.id === 'string' && /^\d{1,10}$/.test(game.id) && typeof game.name === 'string' && game.name.length <= 300

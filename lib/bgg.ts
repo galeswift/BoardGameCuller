@@ -1,6 +1,6 @@
 import { XMLParser } from 'fast-xml-parser';
 import { decodeEntities } from './text';
-import { bggImageUrl, type Game } from './model';
+import { MAX_COLLECTION_GAMES, bggImageUrl, type Game } from './model';
 
 // BGG XML API2. Since 2025 every request needs a registered application token:
 // https://boardgamegeek.com/applications
@@ -236,9 +236,9 @@ export async function fetchBggCollection(username: string, previous: Game[]): Pr
         throw new BggError(`No owned games found in ${username}’s BGG collection.`);
     }
 
-    if (owned.size > 1000)
+    if (owned.size > MAX_COLLECTION_GAMES)
     {
-        throw new BggError('Collections over 1,000 games aren’t supported.');
+        throw new BggError(`Collections over ${MAX_COLLECTION_GAMES.toLocaleString('en-US')} games aren’t supported.`);
     }
 
     const ids = [...owned.keys()];

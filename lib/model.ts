@@ -84,6 +84,12 @@ export const defaults: Settings = {
     preserve: true,
 };
 
+// The largest collection the app accepts, and the largest import or save that can carry it
+// (a game with BGG tags and a thumbnail is roughly 1 KB of JSON).
+export const MAX_COLLECTION_GAMES = 20000;
+
+export const MAX_UPLOAD_BYTES = 30_000_000;
+
 export const nameKey = (name: string) => name.replace(/^(the |a |an )/i, '').toLowerCase();
 // Modeling choice, not a calibrated BGG conversion: a one-point increase in
 // weight doubles a difficulty proxy. Substitutes must be within 50% of one

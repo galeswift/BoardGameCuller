@@ -1,4 +1,4 @@
-import { CONDITIONS, bggImageUrl, type Preference, type Settings, type Game } from './model';
+import { CONDITIONS, MAX_COLLECTION_GAMES, bggImageUrl, type Preference, type Settings, type Game } from './model';
 const bounded = (value: unknown, min: number, max: number, nullable = false) =>
 {
     if (nullable && value === null)
@@ -137,9 +137,9 @@ export function settingsPatch(value: unknown): Partial<Settings>
 
 export function validateGames(games: unknown): Game[]
 {
-    if (!Array.isArray(games) || !games.length || games.length > 1000)
+    if (!Array.isArray(games) || !games.length || games.length > MAX_COLLECTION_GAMES)
     {
-        throw new Error('Collection must contain 1–1,000 games.');
+        throw new Error(`Collection must contain 1–${MAX_COLLECTION_GAMES.toLocaleString('en-US')} games.`);
     }
 
     const ids = new Set<string>();

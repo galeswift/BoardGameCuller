@@ -1,7 +1,7 @@
 import { getUser, getViewer, sameOrigin } from '../../auth';
 import { getDb } from '@/db';
 import seed from '@/lib/collection.json';
-import { defaults, type Game, type Preference, type Settings } from '@/lib/model';
+import { MAX_COLLECTION_GAMES, MAX_UPLOAD_BYTES, defaults, type Game, type Preference, type Settings } from '@/lib/model';
 import { preferencePatch, settingsPatch, validateGames } from '@/lib/validation';
 import { preferenceWrite } from '@/lib/preference-sql';
 import { defaultProfile, resolveProfile } from '@/lib/profile';
@@ -100,7 +100,7 @@ export async function POST(request: Request)
         return json({ error: 'Request origin does not match.' }, 403);
     }
 
-    if (Number(request.headers.get('content-length') || 0) > 1500000)
+    if (Number(request.headers.get('content-length') || 0) > MAX_UPLOAD_BYTES)
     {
         return json({ error: 'Import is too large.' }, 413);
     }
@@ -111,7 +111,7 @@ export async function POST(request: Request)
     {
         const text = await request.text();
 
-        if (text.length > 1500000)
+        if (text.length > MAX_UPLOAD_BYTES)
         {
             return json({ error: 'Import is too large.' }, 413);
         }
@@ -182,7 +182,7 @@ export async function POST(request: Request)
             const restoredSettings = settingsPatch(backup.settings);
             const prefs = backup.preferences;
 
-            if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs) || Object.keys(prefs).length > 2000)
+            if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs) || Object.keys(prefs).length > MAX_COLLECTION_GAMES * 2)
             {
                 throw new Error('Invalid preferences backup.');
             }

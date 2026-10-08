@@ -57,6 +57,14 @@ describe('validateGames', () =>
         expect(validateGames([game('1'), game('2', { type: 'expansion', parentId: '1', parentName: 'Game 1' })])).toHaveLength(2);
     });
 
+    it('accepts collections up to 20,000 games', () =>
+    {
+        const many = (count: number) => Array.from({ length: count }, (_, index) => game(String(index + 1)));
+
+        expect(validateGames(many(20000))).toHaveLength(20000);
+        expect(() => validateGames(many(20001))).toThrow('Collection must contain 1–20,000 games.');
+    });
+
     it('rejects empty, duplicate and malformed collections', () =>
     {
         expect(() => validateGames([])).toThrow('Collection must contain');

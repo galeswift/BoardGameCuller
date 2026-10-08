@@ -58,6 +58,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import {
     CONDITIONS,
     DEFAULT_CONDITION,
+    MAX_UPLOAD_BYTES,
     bggImageUrl,
     calculate,
     collectionFromCSV,
@@ -701,9 +702,9 @@ export default function CollectionApp()
 
         try
         {
-            if (file.size > 1500000)
+            if (file.size > MAX_UPLOAD_BYTES)
             {
-                throw new Error('Choose a file smaller than 1.5 MB.');
+                throw new Error('Choose a file smaller than 30 MB.');
             }
 
             const text = await file.text();
