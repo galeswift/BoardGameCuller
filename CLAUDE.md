@@ -60,7 +60,12 @@ fake BoardGamePrices and PGlite over the wire, see `e2e/support/services.mjs`).
   ratings/ranks; never invent the seller's experience; summarise (never quote) BGG Reviews-forum
   posts and comments rated ≥7; banned stock phrases; punctuation clean-up; "BoardGameGeek" named
   in only ~1 in 4 listings (`mayMentionBgg`, id % 4). **Variety across listings is an important
-  requirement** (see in-progress work).
+  requirement.** The model writes one free-form 45–80 word description (no fixed intro/appeal
+  slots; it's split into those fields by paragraph). Each game gets a stable opening idea
+  (`openingFor`, 8 shapes). `formulaProblems` flags "players/people like…" sentences, "[Game] is
+  a…" openings, hype words, "Great for/if…" sign-offs and adjective fragments ("Calm and
+  puzzly."); a flagged draft gets one rewrite with the reasons, and the better of the two is
+  kept. Don't put example phrases in the prompt: the model copies them into every listing.
 - **Play groups:** auto-assigned with OpenAI (after Sync from BGG, or "Assign play groups"),
   batches of 60, reuse existing groups, retry skipped games, never overwrite. No group-size cap:
   scoring already only compares games of similar weight within a group.
@@ -98,8 +103,4 @@ fake BoardGamePrices and PGlite over the wire, see `e2e/support/services.mjs`).
 
 ## In progress (update or remove when done)
 
-1. **Description variety** (user requirement): AI descriptions too often end with "Players
-   like the…". Plan: vary structure per game deterministically (by BGG id, like
-   `mayMentionBgg`) — different openings for intro and appeal — forbid starting the appeal with
-   "Players like/People like/People enjoy/Fans", and regenerate once if it does. Verify with
-   real samples across several games before committing.
+Nothing in progress.

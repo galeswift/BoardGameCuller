@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import {
     aiCopy,
     aiPrompt,
+    formulaProblems,
+    openingFor,
     mayMentionBgg,
     plainPunctuation,
     decodeEntities,
@@ -136,8 +138,11 @@ describe('aiCopy', () =>
         vi.stubEnv('OPENAI_API_KEY', 'sk-test');
         const details = (await run(fetchBggDetails(['1']))).get('1');
 
-        fetchMock.mockResolvedValue(openAi('{"intro":"A racing game.","appeal":"Fans of Flamme Rouge will love it."}'));
-        expect(await aiCopy(facts(), details)).toEqual({ intro: 'A racing game.', appeal: 'Fans of Flamme Rouge will love it.' });
+        fetchMock.mockResolvedValue(openAi('{"description":"You race riders up the mountain.\\n\\nIt plays a lot like Flamme Rouge."}'));
+        expect(await aiCopy(facts(), details)).toEqual({
+            intro: 'You race riders up the mountain.',
+            appeal: 'It plays a lot like Flamme Rouge.',
+        });
         const [url, init] = fetchMock.mock.calls.at(-1)!;
 
         expect(url).toBe('https://api.openai.com/v1/chat/completions');
@@ -161,7 +166,7 @@ describe('aiCopy', () =>
     {
         vi.stubEnv('OPENAI_API_KEY', 'sk-test');
         vi.stubEnv('OPENAI_MODEL', 'gpt-4o-mini');
-        fetchMock.mockResolvedValue(openAi('{"intro":"x","appeal":"y"}'));
+        fetchMock.mockResolvedValue(openAi('{"description":"x"}'));
         await aiCopy(facts());
         expect(JSON.parse(String(fetchMock.mock.calls[0][1]!.body))).not.toHaveProperty('reasoning_effort');
     });
@@ -191,7 +196,7 @@ describe('comment selection', () =>
             ],
         };
 
-        fetchMock.mockResolvedValue(openAi('{"intro":"x","appeal":"y"}'));
+        fetchMock.mockResolvedValue(openAi('{"description":"x"}'));
         await aiCopy(facts(), details);
         const prompt = JSON.parse(String(fetchMock.mock.calls[0][1]!.body)).messages[1].content;
 
@@ -219,7 +224,7 @@ describe('writeListings', () =>
         fetchMock.mockImplementation(async url =>
             url.includes('openai')
                 ? openAiCalls++ === 0
-                    ? openAi('{"intro":"AI intro.","appeal":"AI appeal."}')
+                    ? openAi('{"description":"AI intro.\\n\\nAI appeal."}')
                     : new Response('rate limited', { status: 429 })
                 : new Response(
                     THING.replace('id="1"', 'id="1"').replace(
@@ -289,7 +294,7 @@ function serveForums()
 
         if (url.includes('openai'))
         {
-            return openAi('{"intro":"AI intro.","appeal":"AI appeal."}');
+            return openAi('{"description":"AI intro.\\n\\nAI appeal."}');
         }
 
         return new Response(THING);
@@ -383,7 +388,7 @@ describe('writeListings with reviews', () =>
 
         expect(prompt).toContain('### A great family racer');
         expect(JSON.parse(String(fetchMock.mock.calls.find(([url]) => url.includes('openai'))![1]!.body)).messages[0].content).toContain(
-            'leave out their complaints'
+            'leave out complaints'
         );
     });
 
@@ -417,15 +422,15 @@ describe('writing voice', () =>
     it("asks for the seller's casual voice, using their own writing as the example", async () =>
     {
         vi.stubEnv('OPENAI_API_KEY', 'sk-test');
-        fetchMock.mockResolvedValue(openAi('{"intro":"x","appeal":"y"}'));
+        fetchMock.mockResolvedValue(openAi('{"description":"x"}'));
         await aiCopy(facts());
         const system: string = JSON.parse(String(fetchMock.mock.calls[0][1]!.body)).messages[0].content;
 
         expect(system).toContain('casual and conversational');
         expect(system).toContain('Looking at what people say on BoardGameGeek, people like the decision space of how to spend loot');
         expect(system).toMatch(/Avoid: hype or marketing words[^\n]*em dashes/);
-        expect(system).toContain('intro: at most 45 words.');
-        expect(system).toContain('appeal: at most 40 words.');
+        expect(system).toContain('Write one description of 45 to 80 words');
+        expect(system).toContain('Never write sentences where a group likes something');
     });
 });
 
@@ -441,8 +446,8 @@ describe('plainPunctuation', () =>
     it("is applied to AI copy, which must not claim the seller's own experience", async () =>
     {
         vi.stubEnv('OPENAI_API_KEY', 'sk-test');
-        fetchMock.mockResolvedValue(openAi('{"intro":"A dice crawler; plays fast.","appeal":"People like the loot — and the boss!"}'));
-        expect(await aiCopy(facts())).toEqual({ intro: 'A dice crawler. Plays fast.', appeal: 'People like the loot, and the boss.' });
+        fetchMock.mockResolvedValue(openAi('{"description":"You crawl a dice dungeon; it plays fast.\\n\\nThe loot — and the boss!"}'));
+        expect(await aiCopy(facts())).toEqual({ intro: 'You crawl a dice dungeon. It plays fast.', appeal: 'The loot, and the boss.' });
         expect(JSON.parse(String(fetchMock.mock.calls[0][1]!.body)).messages[0].content).toContain(
             "Never invent the seller's own experience"
         );
@@ -467,5 +472,76 @@ describe('BoardGameGeek mentions', () =>
 
         expect(other).toContain("Don't mention BoardGameGeek or where the opinions come from.");
         expect(other).not.toContain('You may mention BoardGameGeek');
+    });
+});
+
+describe('description variety', () =>
+{
+    it('gives each game a stable opening idea, spread across the openings', () =>
+    {
+        const ids = Array.from({ length: 400 }, (_, index) => String(100000 + index * 7));
+        const counts = new Map<string, number>();
+
+        for (const id of ids)
+        {
+            counts.set(openingFor(id), (counts.get(openingFor(id)) ?? 0) + 1);
+        }
+
+        expect(counts.size).toBe(8);
+        expect(Math.min(...counts.values())).toBeGreaterThan(20);
+        expect(openingFor('266192')).toBe(openingFor('266192'));
+        expect(aiPrompt(facts({ id: '266192' }))).toContain(openingFor('266192'));
+    });
+
+    it.each([
+        ['Players like the loot.', 'Players like'],
+        ['People on BoardGameGeek really enjoy the combos.', 'People on BoardGameGeek really enjoy'],
+        ['Calm and puzzly. You draft a tile.', 'adjective fragment'],
+        ['You give clues. Quick, cooperative, and annoyingly clever.', 'adjective fragment'],
+        ['Great if you like teamwork.', 'sign-off'],
+        ['Quick turns and easy rules make it work for anyone.', 'sign-off'],
+        ['It makes a perfect filler.', '"perfect"'],
+        ['Flamme Rouge is a racing game.', 'starts with'],
+    ])('flags formula writing: %s', (text, problem) =>
+    {
+        expect(formulaProblems(text, 'Flamme Rouge').join(' ')).toContain(problem);
+    });
+
+    it('lets plain, varied writing through', () =>
+    {
+        for (const text of [
+            "You can't see your own cards. Everyone else can, so you give tiny clues.",
+            'On your turn you play a card into the trick and try to win the one you were given.',
+            'Reviews on BoardGameGeek keep coming back to the card combos.',
+            'It is a good fit for a two-player night.',
+        ])
+        {
+            expect(formulaProblems(text, 'Flamme Rouge')).toEqual([]);
+        }
+    });
+
+    it('rewrites a formulaic draft once, telling the model what to fix', async () =>
+    {
+        vi.stubEnv('OPENAI_API_KEY', 'sk-test');
+        fetchMock
+            .mockResolvedValueOnce(openAi('{"description":"Flamme Rouge is a racing game. Players like the sprints."}'))
+            .mockResolvedValueOnce(openAi('{"description":"Every sprint is a gamble on your energy cards."}'));
+
+        expect(await aiCopy(facts())).toEqual({ intro: 'Every sprint is a gamble on your energy cards.', appeal: '' });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        const retry = JSON.parse(String(fetchMock.mock.calls[1][1]!.body)).messages[1].content;
+
+        expect(retry).toContain('Your previous draft was:');
+        expect(retry).toContain('"Players like" sentence');
+    });
+
+    it('keeps the first draft when the rewrite is worse', async () =>
+    {
+        vi.stubEnv('OPENAI_API_KEY', 'sk-test');
+        fetchMock
+            .mockResolvedValueOnce(openAi('{"description":"Players like the sprints."}'))
+            .mockResolvedValueOnce(openAi('{"description":"Flamme Rouge is a perfect racer. Fans love it. Great for families."}'));
+
+        expect((await aiCopy(facts())).intro).toBe('Players like the sprints.');
     });
 });
